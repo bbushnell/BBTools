@@ -103,6 +103,7 @@ public final class NcrnaAlignmentWork{
 		modelBases+=modelLength;
 		queryBases+=queryLength;
 		hits++;
+		if(queryObserver!=null){queryObserver.query(modelLength, queryLength, false);}
 	}
 
 	/** Records a specialized kernel whose caller owns its timing boundary. */
@@ -123,6 +124,21 @@ public final class NcrnaAlignmentWork{
 		queryBases+=queryLength;
 		physicalModelBases+=modelLength;
 		cpuNanos+=elapsed;
+		if(queryObserver!=null){queryObserver.query(modelLength, queryLength, true);}
+	}
+
+	/** One worker-owned observer borrows actual kernel operand lengths. It is
+	 * removed at window exit; no request object or additional alignment is made. */
+	public interface QueryObserver{void query(int modelLength, int queryLength, boolean physical);}
+	void setQueryObserver(final QueryObserver observer){
+		assert(observer!=null && (queryObserver==null || queryObserver==observer))
+			: shared.KillSwitch.assertDie("A profiled window cannot replace another consumer's kernel observer");
+		queryObserver=observer;
+	}
+	void clearQueryObserver(final QueryObserver observer){
+		assert(queryObserver==null || queryObserver==observer)
+			: shared.KillSwitch.assertDie("A window may clear only its own borrowed kernel observer");
+		queryObserver=null;
 	}
 
 	/** One scheduled generic window, spanning primary, rescue and edge retry.
@@ -249,6 +265,7 @@ public final class NcrnaAlignmentWork{
 	public long windows, windowLogical, windowPhysical;
 	public long rankingQueries, undefinedRankingQueries;
 	private final long[] proposalCounts=new long[9];
+	private QueryObserver queryObserver;
 	private final LongList logicalHistogram=new LongList(16), physicalHistogram=new LongList(16);
 	private static final ThreadLocal<NcrnaAlignmentWork> ACTIVE=new ThreadLocal<NcrnaAlignmentWork>();
 }

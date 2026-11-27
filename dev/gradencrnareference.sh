@@ -44,6 +44,15 @@ overlap=0.5  Minimum reciprocal overlap for scored matches; must be in (0,1].
              when the call has no eligible scored reference. Exact duplicate
              evaluated calls never consume additional scored references.
 t=1          Native I/O thread setting; grading processes one input at a time.
+inexact=f    Also write paired overlap reports when true. Existing strict outputs
+             remain unchanged. Freeze the strict one-to-one matches, then match
+             unused unique calls to unused scored references by any positive
+             same-input/family/contig/strand overlap, maximizing the remaining
+             pairs. Added pairs are TP_INEXACT (matched, endpoints inexact), not
+             a missed reference plus an unmatched call. Adjacency is not overlap.
+             Scored overlap takes precedence over masks; duplicates still cannot
+             consume another reference. This strict-first extension does not
+             optimize alternative strict assignments for more relaxed pairs.
 -Xmx4g       Heap; launch defaults are 4 GB maximum and 256 MB initial.
 ow=f         Fresh files required. Overwrite and append are unsupported.
 
@@ -108,6 +117,18 @@ Outputs:
 .subtype_counts.tsv Optional: distinct parent counts, including multi-supported.
              Choose a presentation by selecting a stored view, never by filtering
              recovery TP/FN labels to derive exclusive assignments.
+.overlap.raw.tsv With inexact=t: parallel union-query/reference outcomes, with
+             TP_INEXACT for additional pairs failing the strict reciprocal test.
+             Query and reference rows are two views of ONE consumed pair.
+.overlap.inputs.tsv With inexact=t: one row per input/family, including zero-call
+             inputs; strict matched/missed/unmatched/masked beside inclusive
+             matched/endpoints_inexact/missed/unmatched/masked and endpoint counts.
+             endpoints_inexact counts only the ADDED overlap-only pairs; matched
+             includes both strict and added pairs. Masked references never match.
+.overlap.summary.tsv Same columns aggregated by family, input_id=ALL. The old
+             strict .summary.tsv and optional subtype reports remain unchanged.
+             A one-base overlap is detection evidence under this explicit rule,
+             not proof of accurate endpoints or independently established truth.
 
 Report text escapes percent/tab/CR/LF as %HH and otherwise preserves UTF-8.
 Reference masks remove uncertainty from scoring; they can hide actual false calls.

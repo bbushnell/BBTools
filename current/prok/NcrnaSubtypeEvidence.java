@@ -220,6 +220,20 @@ final class NcrnaSubtypeEvidence{
 	/** Checks a selected authoritative parent, then derives distinct subtype bits.
 	 * No interval is changed and weak/bridge observations never create masks. */
 	Support support(final Row row){
+		return support(row, true);
+	}
+
+	/** Metadata-only description for saved-assignment diagnostics. Missing required
+	 * evidence still fails; zero confident support remains explicit. Structural
+	 * witness bindings and protected-prior authority still apply. The representative
+	 * label is reported separately, never substituted for the retained support set.
+	 * This accessor does not define a grading view or call the matcher. */
+	Support describe(final Row row){
+		require(hasFamily(row.locus.family), "Support description requires a declared reference family");
+		return support(row, false);
+	}
+
+	private Support support(final Row row, final boolean strict){
 		require(hasFamily(row.locus.family), "Support projection requires a declared reference family");
 		final Support support=parents.get(row.id);
 		require(support!=null && support.input.equals(row.input) && !support.used,
@@ -243,17 +257,19 @@ final class NcrnaSubtypeEvidence{
 		}
 		if(support.priorType>=0){
 			require(!row.mask && types.get(support.priorType).family.equals(row.locus.family)
-				&& types.get(support.priorType).model.equals(row.model)
+				&& (!strict || types.get(support.priorType).model.equals(row.model))
 				&& row.locus.start==support.priorStart && row.locus.stop==support.priorStop,
 				"Protected subtype assignment and interval must retain their original authority", row.id);
 			support.scored=1<<support.priorType;
 		}
-		require(row.mask || support.scored!=0, "Scored parent lacks justified scored subtype support", row.id);
-		require(!row.mask || support.scored==0, "Masked parent cannot carry confident scored subtype support", row.id);
-		int representative=-1;
-		for(int i=0; i<types.size(); i++){if(types.get(i).model.equals(row.model)){representative=i;}}
-		require(representative>=0 && ((support.scored|support.marginal)&(1<<representative))!=0,
-			"Parent representative lacks its original qualifying subtype witness", row.id);
+		if(strict){
+			require(row.mask || support.scored!=0, "Scored parent lacks justified scored subtype support", row.id);
+			require(!row.mask || support.scored==0, "Masked parent cannot carry confident scored subtype support", row.id);
+			int representative=-1;
+			for(int i=0; i<types.size(); i++){if(types.get(i).model.equals(row.model)){representative=i;}}
+			require(representative>=0 && ((support.scored|support.marginal)&(1<<representative))!=0,
+				"Parent representative lacks its original qualifying subtype witness", row.id);
+		}
 		support.marginal&=~support.scored;
 		support.used=true;
 		return support;

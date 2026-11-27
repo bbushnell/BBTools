@@ -62,6 +62,7 @@ public final class CompareCobalaminBenchmarkGrades{
 			final String[] split=Parse.splitOnFirst(arg, '=');
 			final String a=split[0].toLowerCase(Locale.ROOT), b=split.length>1 ? split[1] : null;
 			if(a.equals("subset")){subset=b.split(",");}
+			else if(a.equals("changesonly")){changesOnly=Parse.parseBoolean(b);}
 			else if(a.equals("radius")){radius=NcrnaNumbers.intValue(a, b);}
 			else if(a.equals("trace")){trace=b;}
 			else if(a.equals("bindings")){bindings=b;}
@@ -99,6 +100,9 @@ public final class CompareCobalaminBenchmarkGrades{
 				out+".replay_selection.tsv", out+".replay_accounting.tsv"), "Replay outputs must be fresh");
 		}
 		Shared.setThreads(1);
+		require(!changesOnly || radius<0 && trace==null && subset==null,
+			"changesonly uses saved outcomes alone; paired/replay/subset options would be ignored");
+		if(changesOnly){CobalaminCallChangeAudit.checkOutputs(out);}
 	}
 
 	/*--------------------------------------------------------------*/
@@ -119,6 +123,10 @@ public final class CompareCobalaminBenchmarkGrades{
 			readWitnesses(side);
 		}
 		validate();
+		if(changesOnly){
+			new CobalaminCallChangeAudit(out).write(genomes);
+			return;
+		}
 		if(trace!=null){
 			replay=new CobalaminBoundaryReplay(trace, bindings, radius, replayMargins);
 			for(final Genome genome:genomes){
@@ -255,7 +263,7 @@ public final class CompareCobalaminBenchmarkGrades{
 			lengths.writer.println("side\tinput_id\temitted_member\tmodel\toutcome\treference_id\treference_status\tcall_bp\treference_bp\tintersection_bp\tcall_to_reference_length\tqualification");
 			callLengths.writer.println(CALL_LENGTH_VERSION);
 			callLengths.writer.println("side\tinput_id\tseqid\tstart\tstop\tstrand\temitted_member\tmodel\toutcome\tcall_bp\treference_overlap_pairs\tqualification");
-			if(paired!=null){paired.writer.println("input_id\treference_id\tseqid\tstrand\toff_member\ton_member\toff_d5\ton_d5\toff_d3\ton_d3\toff5_within_radius\toff3_within_radius");}
+			if(paired!=null){paired.writer.println(PAIRED_LOCI_HEADER);}
 			for(final Reference ref:references){
 				if(!ref.scored){continue;}
 				final Query before=ref.winners[0], after=ref.winners[1];
@@ -498,7 +506,7 @@ public final class CompareCobalaminBenchmarkGrades{
 	/*----------------             State            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	private static final class Genome{
+	static final class Genome{
 		Genome(final String id_){id=id_;}
 		ArrayList<Query> queries(final int side){return side==0 ? before : after;}
 		final String id;
@@ -507,7 +515,7 @@ public final class CompareCobalaminBenchmarkGrades{
 		final ArrayList<Reference> references=new ArrayList<Reference>();
 		boolean seen;
 	}
-	private static final class Reference{
+	static final class Reference{
 		Reference(final Genome genome_, final String id_, final String seqid_, final int start_, final int stop_, final char strand_, final boolean scored_){
 			genome=genome_;
 			id=id_;
@@ -525,7 +533,7 @@ public final class CompareCobalaminBenchmarkGrades{
 		final Query[] winners=new Query[2];
 		boolean seen;
 	}
-	private static final class Query{
+	static final class Query{
 		Query(final String seqid_, final int start_, final int stop_, final char strand_, final String member_, final String model_, final String outcome_, final String reference_){
 			seqid=seqid_;
 			start=start_;
@@ -542,6 +550,7 @@ public final class CompareCobalaminBenchmarkGrades{
 		CobalaminBoundaryReplay.Call trace;
 	}
 	private String out;
+	private boolean changesOnly;
 	private String trace, bindings;
 	private CobalaminBoundaryReplay replay;
 	private float[] replayMargins;
@@ -571,6 +580,7 @@ public final class CompareCobalaminBenchmarkGrades{
 	public static final String LENGTH_VERSION="#COBALAMIN_REFERENCE_LENGTHS_V2";
 	public static final String CALL_LENGTH_VERSION="#COBALAMIN_CALL_LENGTHS_V2";
 	public static final String PAIRED_VERSION="#COBALAMIN_PAIRED_ENDPOINTS_V2";
+	public static final String PAIRED_LOCI_HEADER="input_id\treference_id\tseqid\tstrand\toff_member\ton_member\toff_d5\ton_d5\toff_d3\ton_d3\toff5_within_radius\toff3_within_radius";
 	public static final String PAIRED_HEADER="cohort\tend\tradius_bp\tpaired_n\toff_rms_nt\ton_rms_nt\tbetter\tworse\tunchanged\tworse_off_within_radius\tworse_off_beyond_radius\tlabel_switches\tqualification";
 	public static final String NEAR_VERSION="#COBALAMIN_PAIRED_NEAR_ENDPOINTS_V2";
 	public static final String NEAR_HEADER="cohort\tend\tradius_bp\tpaired_n\toff_within_radius_n\toff_within_radius_rms_nt\ton_same_subset_rms_nt\tworse_off_within_radius\tqualification";

@@ -32,6 +32,19 @@ public final class NcrnaReferenceGff{
 	 * No contig-length or biological-disposition validation is inferred here.
 	 */
 	public ArrayList<Row> read(final String path, final String expectedInput){
+		return read(path, expectedInput, null);
+	}
+
+	/** Reads one explicit family without allocating rows, IDs or score arrays for
+	 * unrelated families. File framing and family attributes are checked throughout;
+	 * full feature/score validation and duplicate-ID checks cover retained rows only.
+	 * This is a scoped reader, not a validation of the omitted families.
+	 */
+	public ArrayList<Row> readFamily(final String path, final String expectedInput, final String family){
+		require(family!=null && !family.isEmpty(), "A scoped reference reader needs its explicit family");
+		return read(path, expectedInput, family);
+	}
+	private ArrayList<Row> read(final String path, final String expectedInput, final String family){
 		require(expectedInput!=null && !expectedInput.isEmpty(), "The reference manifest must identify its exact input");
 		final ArrayList<Row> rows=new ArrayList<Row>();
 		final ObjectMap<String, Row> ids=new ObjectMap<String, Row>(16, String.class, Row.class);
@@ -52,6 +65,7 @@ public final class NcrnaReferenceGff{
 						"Repeated reference header could concatenate different input files: "+path);
 					continue;
 				}
+				if(family!=null && !familyMatches(line, family)){continue;}
 				final Row row=parse(line, expectedInput);
 				require(!ids.contains(row.id), "Duplicate reference locus ID would double-count a scored or masked locus: "+row.id);
 				ids.put(row.id, row);
@@ -59,6 +73,39 @@ public final class NcrnaReferenceGff{
 			}
 		}
 		return rows;
+	}
+	/** Checks just the declared family in borrowed bytes; decode only escaped
+	 * values. Ordinary canonical ASCII labels require no transient String.
+	 */
+	private boolean familyMatches(final byte[] line, final String family){
+		parser.set(line);
+		require(parser.terms()==9 && parser.termEquals("ncRNA", 2), "Family selection requires a nine-field ncRNA reference row");
+		parser.setBounds(8);
+		final int limit=parser.b();
+		boolean found=false, matches=false;
+		for(int from=parser.a(); from<limit; ){
+			int end=from;
+			while(end<limit && line[end]!=';'){end++;}
+			int equal=from;
+			while(equal<end && line[equal]!='='){equal++;}
+			require(equal>from && equal<end, "Reference attributes require nonempty name=value fields");
+			if(same(line, from, equal, "reference_family")){
+				require(!found && equal+1<end, "Every reference row requires exactly one nonempty family attribute");
+				found=true;
+				matches=same(line, equal+1, end, family);
+				if(!matches){
+					for(int i=equal+1; i<end; i++){
+						if(line[i]=='%'){
+							matches=family.equals(decoder.decode(line, equal+1, end));
+							break;
+						}
+					}
+				}
+			}
+			from=end+1;
+		}
+		require(found, "A scoped reader cannot infer the family of an unlabelled reference row");
+		return matches;
 	}
 
 	/** Writes explicit dispositions only, never derives them. Validates the whole

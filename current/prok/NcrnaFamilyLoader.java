@@ -19,6 +19,26 @@ public final class NcrnaFamilyLoader {
 		require(options!=null && resolver!=null, "Explicit load options and resolver required");
 		if(!options.enabled){return null;}//A disabled selection never resolves or opens a resource.
 		final NcrnaFamilyRegistry.Entry p=NcrnaFamilyRegistry.get(familyId);
+		if(NcrnaFamilyRegistry.isCobalamin(p.id)){
+			final CobalaminCallerResources.Policy policy=options.cobalaminCallerPolicy!=null ? options.cobalaminCallerPolicy
+				: CobalaminCallerResources.Policy.find(resolver, options.resources);
+			if(policy!=null){policy.apply(p.id, options, resolver);}
+		}
+		final boolean cm=options.cobalaminCmPolicy!=CobalaminCmEndpointRefiner.OFF;
+		require(options.cobalaminCmPolicy>=CobalaminCmEndpointRefiner.OFF
+			&& options.cobalaminCmPolicy<=CobalaminCmEndpointRefiner.POOLED && (!cm || NcrnaFamilyRegistry.isCobalamin(p.id)),
+			"CM endpoints require an explicitly selected cobalamin member and known operating point");
+		require(!options.cobalaminCmGa || cm, "A CM score hold requires an explicit CM endpoint mode");
+		if(cm){
+			require(!Boolean.TRUE.equals(options.boundaryOverride) && options.resources.boundary==null
+				&& options.resources.boundary3==null && options.resources.boundaryStart==null && options.resources.boundaryStop==null
+				&& options.resources.voteOffsets==null && options.resources.tables==null && options.resources.endpoints==null
+				&& options.boundaryStartOffsets==null && options.boundaryStopOffsets==null
+				&& !options.boundaryMarginStartSet && !options.boundaryMarginStopSet,
+				"Select covariance endpoints or explicit tip/vote resources, never both");
+			options.boundary=false;
+			options.endpoints=false;
+		}
 		final int patience=options.modelPatience==Options.UNSET_PATIENCE ? p.modelPatience : options.modelPatience;
 		NcrnaPatience.validate(patience);
 		require(patience==-1 || p.boundary!=null && !p.boundary.trna,
@@ -101,7 +121,7 @@ public final class NcrnaFamilyLoader {
 		require(collapse>=0f && collapse<=1f, "Collapse fraction must be in [0,1] for "+p.id);
 		PackagedBoundaryConfig packagedBoundary=null;
 		PackagedPositionalBoundaryConfig positionalBoundary=null;
-		if(p.boundary!=null && !p.boundary.trna){
+		if(!cm && p.boundary!=null && !p.boundary.trna){
 			final FamilyResourceResolver.Handle config=resolver.optional(p.id, "boundary_config", options.resources);
 			if(config!=null){
 				packagedBoundary=PackagedBoundaryConfig.read(config.path);
@@ -170,6 +190,10 @@ public final class NcrnaFamilyLoader {
 		}
 		if(packagedBoundary!=null){packagedBoundary.loaded(family);}
 		if(positionalBoundary!=null){positionalBoundary.loaded(family, resolver);}
+		if(cm){
+			family.boundaryRefinerFactory=CobalaminCmEndpointRefiner.load(family, resolver, options.resources, options.cobalaminCmPolicy, options.cobalaminCmGa);
+			family.boundaryOnRawEndpoints=true;
+		}
 		return family;
 	}
 	static LongHashSet loadSeedKeys(String family, int k, FamilyResourceResolver resolver){
@@ -261,6 +285,11 @@ public final class NcrnaFamilyLoader {
 		/** Distinguishes an omitted registry choice from an explicit legacy value -1. */
 		public static final int UNSET_PATIENCE=Integer.MIN_VALUE;
 		public int modelPatience=UNSET_PATIENCE;
+		/** Zero leaves the entire ordinary endpoint path and loading unchanged. */
+		public int cobalaminCmPolicy=CobalaminCmEndpointRefiner.OFF;
+		public boolean cobalaminCmGa=false;
+		/** The group loader shares one cold policy parse among its three members. */
+		public CobalaminCallerResources.Policy cobalaminCallerPolicy;
 		/** Explicit enable selection; null permits a packaged default. Absent packages keep boundary unchanged. */
 		public Boolean boundaryOverride;
 		public boolean enabled=true, hbm=true, seeds=true, endpoints=true, cutoffs=true, boundary=false;

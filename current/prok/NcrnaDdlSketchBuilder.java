@@ -15,7 +15,7 @@ import structures.IntList;
 /** Native forward8/masked10 quarter-short sketches. Each worker reuses one
  * builder; returned DDL objects own only their native key arrays. The blacklist
  * is borrowed read-only and never learned from a clustering query.
- * @author Brian Bushnell, Raiden
+ * @author Brian, Raiden, Ganyu
  */
 public final class NcrnaDdlSketchBuilder implements CardinalityTracker.KmerConsumer{
 
@@ -52,13 +52,38 @@ public final class NcrnaDdlSketchBuilder implements CardinalityTracker.KmerConsu
 
 	/** Replaces reusable per-worker maxima with explicit native4+12 keys. */
 	public void fillKeys(final byte[] sequence, final char[] output){
+		fillKeys(sequence, output, null);
+	}
+
+	/** Optional query-only admission before maximum reduction. Reference profiles
+	 * and the standard native key geometry remain unchanged. Null is the ordinary
+	 * query path; the immutable existing-index lookup is shared across workers.
+	 */
+	public void fillKeys(final byte[] sequence, final char[] output, final NcrnaDdlReferenceKeys allowed){
+		fillKeys(sequence, output, allowed, null);
+	}
+	/** Optional query-work census; keep disabled during query timing. */
+	public void fillKeys(final byte[] sequence, final char[] output, final NcrnaDdlReferenceKeys allowed, final QueryStats stats){
 		if(sequence==null || output==null || output.length!=bins || active!=null || activePrefix!=null || activeKeys!=null){
 			throw new IllegalArgumentException("A worker fills one complete matching key array at a time");
 		}
+		if(allowed!=null && (allowed.bins!=bins || allowed.seed!=seed)){
+			throw new IllegalArgumentException("Query reference-key filter must share this builder's exact bin width and hash seed");
+		}
+		if(stats!=null){
+			if(stats.bins!=bins){throw new IllegalArgumentException("Query-work counters must match this builder's bin width");}
+			stats.clear();
+		}
 		Arrays.fill(output, (char)0);
 		activeKeys=output;
+		activeReferenceKeys=allowed;
+		activeStats=stats;
 		try{CardinalityTracker.forEachKmer(sequence, 8, 10, false, true, this);}
-		finally{activeKeys=null;}
+		finally{
+			activeKeys=null;
+			activeReferenceKeys=null;
+			activeStats=null;
+		}
 	}
 
 	/** Fills caller-owned native scratch; no per-word object or intermediate
@@ -102,8 +127,56 @@ public final class NcrnaDdlSketchBuilder implements CardinalityTracker.KmerConsu
 			final int bucket=((int)hash&((bins-1)>>>2))|(partition<<(Integer.numberOfTrailingZeros(bins)-2));
 			final int key=DynamicDemiLog.encodeKey(hash, 4, 12);
 			if(activePrefix!=null){activePrefix.add((bucket<<16)|key);}
-			else if(key>activeKeys[bucket]){activeKeys[bucket]=(char)key;}
+			else{
+				if(activeStats!=null){activeStats.observe(bucket, key, activeKeys[bucket]);}
+				if(key>activeKeys[bucket]){
+					final boolean present=activeReferenceKeys==null || activeReferenceKeys.contains(bucket, key);
+					if(activeStats!=null && activeReferenceKeys!=null){
+						activeStats.postingLookups++;
+						if(!present){activeStats.rejectedCandidates++;}
+					}
+					if(present){activeKeys[bucket]=(char)key;}
+				}
+			}
 		}
+	}
+
+	/** Events after the existing padding-word blacklist. Occupied visits include
+	 * repeats of the incumbent key; different-key contests count challenger words,
+	 * not unique key species. contestedBins counts each affected bin once.
+	 */
+	public static final class QueryStats{
+		public QueryStats(final int bins_){
+			if(bins_!=512 && bins_!=1024){throw new IllegalArgumentException("Query census requires the native bin width");}
+			bins=bins_;
+			contested=new boolean[bins];
+		}
+		private void clear(){
+			words=0;
+			occupiedVisits=0;
+			differentKeyContests=0;
+			contestedBins=0;
+			postingLookups=0;
+			rejectedCandidates=0;
+			Arrays.fill(contested, false);
+		}
+		private void observe(final int bin, final int key, final int incumbent){
+			words++;
+			if(incumbent!=0){
+				occupiedVisits++;
+				if(key!=incumbent){
+					differentKeyContests++;
+					if(!contested[bin]){
+						contested[bin]=true;
+						contestedBins++;
+					}
+				}
+			}
+		}
+		public long words, occupiedVisits, differentKeyContests, postingLookups, rejectedCandidates;
+		public int contestedBins;
+		public final int bins;
+		private final boolean[] contested;
 	}
 
 	public static final class Prefix implements NcrnaDdlLayoutVotes.KeyPrefix{
@@ -111,7 +184,18 @@ public final class NcrnaDdlSketchBuilder implements CardinalityTracker.KmerConsu
 			if(bins_!=512 && bins_!=1024){throw new IllegalArgumentException("Consensus prefix width must match the explicit native512/1024layout");}
 			bins=bins_;
 		}
-		private void clear(){keys.clear();packed.clear();}
+		/** Historical bonus: exactly one native maximum per nonempty bin. */
+		public void setMaxima(final char[] maxima){
+			if(maxima==null || maxima.length!=bins){throw new IllegalArgumentException("Consensus maxima must match this prefix width");}
+			clear();
+			for(int bin=0; bin<bins; bin++){
+				if(maxima[bin]!=0){add((bin<<16)|maxima[bin]);}
+			}
+		}
+		private void clear(){
+			keys.clear();
+			packed.clear();
+		}
 		private void add(final int key){if(keys.add(key)){packed.add(key);}}
 		@Override public int buckets(){return bins;}
 		@Override public int keyCount(){return packed.size;}
@@ -177,6 +261,8 @@ public final class NcrnaDdlSketchBuilder implements CardinalityTracker.KmerConsu
 	private DynamicDemiLog active;
 	private Prefix activePrefix;
 	private char[] activeKeys;
+	private NcrnaDdlReferenceKeys activeReferenceKeys;
+	private QueryStats activeStats;
 	private static final long LONG_MASK=AbstractKmerTable.makeMiddleMask(10, false, 1);
 	public static final String BLACKLIST_HEADER="definition\tword_form\trank\traw_word\ttagged_word\tfrequency\tforward_sequence\tfit_side";
 }

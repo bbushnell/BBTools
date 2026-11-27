@@ -163,7 +163,7 @@ public final class PackagedPositionalBoundaryConfig{
 		}
 		NcrnaPositionalTables.wordLength(startInside, startOutside);
 		NcrnaPositionalTables.wordLength(stopInside, stopOutside);
-		if(triple){require(startInside+startOutside==9 && stopInside+stopOutside==9, "Three-probe configuration requires K9 at both ends");}
+		if(triple){NcrnaPositionalTables.tripleWordLength(startInside, startOutside, stopInside, stopOutside);}
 		for(final String key:TRIPLE_PAYLOAD){
 			require(seen.contains(key)==(triple && enabled), "Only an enabled triple schema declares each extra table and its training HBM witness: "+key);
 		}
@@ -270,8 +270,9 @@ public final class PackagedPositionalBoundaryConfig{
 			threeGeometry[probe]=three[probe].geometry;
 		}
 		require(fiveGeometry[0].radius==radius && threeGeometry[0].radius==radius
+			&& fiveGeometry[0].k==startInside+startOutside && threeGeometry[0].k==stopInside+stopOutside
 			&& fiveGeometry[0].offset==-startOutside && threeGeometry[0].offset==1-stopInside,
-			"Signed primary probes must match the declared package placement and correction radius");
+			"Signed primary probes must match the declared package word length, placement and correction radius");
 		verifyModels(TrnaConsensusBuilder.loadModels(
 			resolver.configPayload(family, source, "positional_training_hbm", trainingModels).path), loaded);
 		loaded.boundaryRefinerFactory=new NcrnaPositionalBoundaryRefiner.Resources(loaded, fiveGeometry, threeGeometry, five, three,

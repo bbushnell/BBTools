@@ -65,10 +65,11 @@ public final class NcrnaPositionalBoundaryFeatures{
 				}
 				for(int probe=0; probe<3; probe++){
 					final RrnaPositionalKmerTable.Table table=probes[end][probe];
-					if(table==null || !table.finished || table.radius!=radius || table.k!=9
+					if(table==null || !table.finished || table.radius!=radius || table.k<7 || table.k>9
+							|| table.k!=tables[0].k || table.k!=tables[1].k
 							|| !table.model.equals(tables[end].model) || !table.end.equals(tables[end].end)
-							|| (probe==1 && table.offset!=-9) || (probe==2 && table.offset!=1)){
-						throw new IllegalArgumentException("Three K9 probes must share member/end/radius and use explicit exclusive offsets -9 and +1");
+							|| (probe==1 && table.offset!=-table.k) || (probe==2 && table.offset!=1)){
+						throw new IllegalArgumentException("Three K7..9 probes must share member/end/radius/K and exclusive offsets -K and +1");
 					}
 					if(backgrounds!=null){
 						if(backgrounds[end][probe]==null || backgrounds[end][probe].geometry!=table){

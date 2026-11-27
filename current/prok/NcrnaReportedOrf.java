@@ -28,6 +28,23 @@ public final class NcrnaReportedOrf extends Orf{
 		reportedStop=stop;
 	}
 
+	/** Restores raw current-frame geometry and the independent sense-frame report.
+	 * Saved codons come from discovery, before endpoint refinement and strand flips.
+	 */
+	public NcrnaReportedOrf(final String name, final int start, final int stop,
+			final int strand, final int contigLength, final int flipped,
+			final int startCodon, final int stopCodon, final boolean startTruncated,
+			final boolean stopTruncated, final int reportedStart_, final int reportedStop_){
+		super(name, start, stop, strand, 0, contigLength, flipped, RNA,
+			startCodon, stopCodon, startTruncated, stopTruncated);
+		if(reportedStart_<0 || reportedStop_<reportedStart_ || reportedStop_>=contigLength){
+			throw new IllegalArgumentException("Saved deferred reports must remain inside their sense-frame contig: "+
+				reportedStart_+".."+reportedStop_+" length="+contigLength);
+		}
+		reportedStart=reportedStart_;
+		reportedStop=reportedStop_;
+	}
+
 	/*--------------------------------------------------------------*/
 	/*----------------           Methods            ----------------*/
 	/*--------------------------------------------------------------*/

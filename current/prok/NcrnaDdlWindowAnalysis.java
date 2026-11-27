@@ -34,12 +34,26 @@ public final class NcrnaDdlWindowAnalysis implements NcrnaWindowCaptureSink, Ncr
 	public NcrnaDdlWindowAnalysis(final String input, final NcrnaFamily family,
 			final NcrnaScavenger ordinary_, final NcrnaDdlProfile[][] profiles,
 			final int[] ks, final Sink sink_){
+		this(input, family, ordinary_, profiles, ks, sink_, false);
+	}
+
+	/** Padding learning needs the same complete acceptance oracle, without
+	 * constructing or scoring any ranking profiles. Native caller observation
+	 * and accepted-span semantics remain identical to the ranking diagnostic. */
+	public NcrnaDdlWindowAnalysis(final String input, final NcrnaFamily family,
+			final NcrnaScavenger ordinary, final Sink sink){
+		this(input, family, ordinary, new NcrnaDdlProfile[0][], new int[0], sink, true);
+	}
+
+	private NcrnaDdlWindowAnalysis(final String input, final NcrnaFamily family,
+			final NcrnaScavenger ordinary_, final NcrnaDdlProfile[][] profiles,
+			final int[] ks, final Sink sink_, final boolean paddingOnly){
 		checkEnvironment();
 		require(input!=null && !input.isEmpty() && family!=null && ordinary_!=null && sink_!=null
 			&& TARGET.equals(family.name) && TARGET.equals(ordinary_.family)
 			&& family.kLong==ConservedRnaSeedIndex.K && ordinary_.cmVerifier==null,
 			"Window analysis requires one exact input and the ordinary RF00174 worker without CM verification");
-		require(profiles!=null && ks!=null && profiles.length>0 && profiles.length==ks.length,
+		require(profiles!=null && ks!=null && (paddingOnly ? profiles.length==0 : profiles.length>0) && profiles.length==ks.length,
 			"Declare every profile geometry and its matching k before workers start");
 		ordinary_.validateOracleModels(family.modelNames);
 		ordinary=ordinary_;

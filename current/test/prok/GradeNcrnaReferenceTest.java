@@ -121,8 +121,62 @@ final class GradeNcrnaReferenceTest{
 			check(!new File(path(name+".summary.tsv")).exists(), "A failed grade must not publish a completion summary: "+name);
 		}
 		checkRestriction(codec, a, am, referenceRows, queryRows);
+		checkInexact(queryRows);
 		System.err.println("GRADE_NCRNA_REFERENCE_TEST_PASS");
 	}
+
+	private void checkInexact(final String queryRows){
+		invoke("paired_unchanged", refs, queries, null, false, true);
+		for(final String suffix:new String[]{".raw.tsv", ".inputs.tsv", ".summary.tsv"}){
+			check(Arrays.equals(lines("good"+suffix), lines("paired_unchanged"+suffix)),
+				"Enabling paired overlap reports must not alter strict output bytes: "+suffix);
+		}
+		check(!new File(path("good.overlap.summary.tsv")).exists(), "Default mode does not emit relaxed grade outputs");
+		write("overlap.calls.gff", call("A", 20, 100, '+')+call("A", 20, 100, '+')
+			+call("A", 90, 109, '+')+call("B", 20, 100, '+'));
+		final String modified=write("overlap_queries.tsv", GradeNcrnaReference.MANIFEST_HEADER+'\n'
+			+queryRows.replace(path("a.calls.gff"), path("overlap.calls.gff")));
+		invoke("overlap_strict", refs, modified);
+		invoke("overlap_paired", refs, modified, null, false, true);
+		for(final String suffix:new String[]{".raw.tsv", ".inputs.tsv", ".summary.tsv"}){
+			check(Arrays.equals(lines("overlap_strict"+suffix), lines("overlap_paired"+suffix)),
+				"New positive-overlap pairs must leave the independent strict result unchanged: "+suffix);
+		}
+		final String[] summary=lines("overlap_paired.overlap.summary.tsv");
+		check(summary[0].equals(GradeNcrnaReference.INEXACT_HEADER), "Paired grade columns identify both definitions explicitly");
+		check(summary[1].equals("ALL\tA\t3\t1\t2\t0\t3\t2\t1\t1\t1\t1\t3\t2\t1\t1\t0\t0\tSTRICT_PAIRS_FIXED_THEN_POSITIVE_OVERLAP_ONE_TO_ONE"),
+			"Wide call adds one inexact pair; its duplicate becomes unmatched, one mask stays masked, empty input retains FN");
+		final String[] perInput=lines("overlap_paired.overlap.inputs.tsv");
+		check(perInput.length==10 && Arrays.asList(perInput).contains(
+			"B\tA\t1\t0\t1\t0\t0\t0\t0\t1\t0\t0\t1\t1\t0\t0\t0\t0\tSTRICT_PAIRS_FIXED_THEN_POSITIVE_OVERLAP_ONE_TO_ONE"),
+			"All input/family rows, including an empty input, support matched-genome breadth without guessing zeros");
+		int queryAdded=0;
+		int referenceAdded=0;
+		final LineParser1 parser=new LineParser1('\t');
+		for(final String line:lines("overlap_paired.overlap.raw.tsv")){
+			parser.set(line.getBytes(StandardCharsets.UTF_8));
+			check(parser.terms()==18, "Parallel raw reports preserve explicit original query/reference witnesses");
+			if(!parser.termEquals("TP_INEXACT", 7)){continue;}
+			if(parser.termEquals("QUERY", 1)){
+				queryAdded++;
+				check(parser.parseInt(16)==10 && parser.parseInt(17)==71, "Inexact pair retains actual signed endpoint errors");
+			}else{referenceAdded++;}
+		}
+		check(queryAdded==1 && referenceAdded==1, "Query/reference rows describe one added consumed pair, not two independent matches");
+		expectExistingOutput(()->invoke("overlap_paired", refs, modified, null, false, true));
+		System.err.println("GRADE_NCRNA_REFERENCE_INEXACT_TEST_PASS");
+	}
+	/** Tools.testOutputFiles rejects an existing path with an assertion under -ea. */
+	private static void expectExistingOutput(final Runnable action){
+		try{action.run();}
+		catch(AssertionError failure){
+			check(failure.getMessage()!=null && failure.getMessage().contains("exists and overwrite=false"),
+				"Only the explicit output-preservation assertion satisfies this collision test: "+failure);
+			return;
+		}
+		throw new AssertionError("Expected the existing-output refusal from Tools.testOutputFiles");
+	}
+
 	/** Global reference restriction must reproduce a manually selected reference
 	 * while keeping empty-query FNs and making each kind of exclusion observable. */
 	private void checkRestriction(final NcrnaReferenceGff codec, final Row a, final Row am,
@@ -172,10 +226,15 @@ final class GradeNcrnaReferenceTest{
 		invoke(name, references, calls, overlap, false);
 	}
 	private void invoke(final String name, final String references, final String calls, final String overlap, final boolean restrict){
+		invoke(name, references, calls, overlap, restrict, false);
+	}
+	private void invoke(final String name, final String references, final String calls, final String overlap, final boolean restrict,
+		final boolean inexact){
 		final ArrayList<String> args=new ArrayList<String>(Arrays.asList("in="+calls, "reference="+references,
 			"familymap="+rules, "out="+path(name), "t=1", "bgzip=f", "zipthreads=1"));
 		if(overlap!=null){args.add("overlap="+overlap);}
 		if(restrict){args.add("restrictreference=t");}
+		if(inexact){args.add("inexact=t");}
 		GradeNcrnaReference.main(args.toArray(new String[args.size()]));
 	}
 	private String binding(final String id, final String gff){return id+'\t'+path(id+".fa")+'\t'+path(gff)+'\n';}

@@ -50,17 +50,17 @@ public final class NcrnaPositionalTables{
 			stopInside, stopOutside, fiveAlpha, threeAlpha, false);
 	}
 
-	/** Optional K9 probes at the measured placement and the exclusive left/right
+	/** Optional K7..9 probes at the declared placement and the exclusive left/right
 	 * windows. All six tables count the same eligible loci in one context pass.
 	 */
 	public static NcrnaPositionalTables buildTriple(final NcrnaLearningPopulation population, final String fasta,
 			final String member, final int[] radii, final int startInside, final int startOutside,
 			final int stopInside, final int stopOutside, final double prior){
-		if(wordLength(startInside, startOutside)!=9 || wordLength(stopInside, stopOutside)!=9
-				|| !(prior>0 && Double.isFinite(prior))){
-			throw new IllegalArgumentException("The optional three-probe layout requires K9 at both ends and positive total prior");
+		final int k=tripleWordLength(startInside, startOutside, stopInside, stopOutside);
+		if(!(prior>0 && Double.isFinite(prior))){
+			throw new IllegalArgumentException("The optional three-probe layout requires equal K7..9 at both ends and positive total prior");
 		}
-		final double alpha=prior/(1<<18);
+		final double alpha=prior/(1<<(2*k));
 		return build(population, fasta, member, radii, startInside, startOutside,
 			stopInside, stopOutside, alpha, alpha, true);
 	}
@@ -69,12 +69,12 @@ public final class NcrnaPositionalTables{
 	public static NcrnaPositionalTables buildFull(final NcrnaLearningPopulation population, final String fasta,
 			final String member, final int[] radii, final int startInside, final int startOutside,
 			final int stopInside, final int stopOutside, final double prior, final NcrnaSignedEndpointErrors errors){
+		final int k=tripleWordLength(startInside, startOutside, stopInside, stopOutside);
 		if(errors==null || !member.equals(errors.member) || radii==null || radii.length!=1 || radii[0]!=10
-				|| wordLength(startInside, startOutside)!=9 || wordLength(stopInside, stopOutside)!=9
 				|| !(prior>0 && Double.isFinite(prior))){
-			throw new IllegalArgumentException("Full-error inputs require this member's measured errors, three K9 probes, radius ten and positive prior");
+			throw new IllegalArgumentException("Full-error inputs require this member's measured errors, equal K7..9 probes, radius ten and positive prior");
 		}
-		final double alpha=prior/(1<<18);
+		final double alpha=prior/(1<<(2*k));
 		return build(population, fasta, member, radii, startInside, startOutside,
 			stopInside, stopOutside, alpha, alpha, true, errors);
 	}
@@ -109,6 +109,16 @@ public final class NcrnaPositionalTables{
 		return (int)k;
 	}
 
+	/** Both ends share one word length so the three-probe neural layout is explicit. */
+	public static int tripleWordLength(final int startInside, final int startOutside,
+			final int stopInside, final int stopOutside){
+		final int k=wordLength(startInside, startOutside);
+		if(k<7 || k!=wordLength(stopInside, stopOutside)){
+			throw new IllegalArgumentException("Three-probe ends require the same K7..9; each probe's full word must fit its declared geometry");
+		}
+		return k;
+	}
+
 	private NcrnaPositionalTables(final NcrnaLearningPopulation population_, final String member_, final int[] radii_,
 			final int startInside, final int startOutside, final int stopInside, final int stopOutside,
 			final double fiveAlpha, final double threeAlpha, final boolean triple, final NcrnaSignedEndpointErrors errors){
@@ -132,9 +142,9 @@ public final class NcrnaPositionalTables{
 				fiveProbes[r][0]=five[r];
 				threeProbes[r][0]=three[r];
 				for(int probe=1; probe<3; probe++){
-					final int offset=probe==1 ? -9 : 1;
-					fiveProbes[r][probe]=new RrnaPositionalKmerTable.Table(member, "5prime", 9, offset, fiveAlpha, radii[r]);
-					threeProbes[r][probe]=new RrnaPositionalKmerTable.Table(member, "3prime", 9, offset, threeAlpha, radii[r]);
+					final int k=five[r].k, offset=probe==1 ? -k : 1;
+					fiveProbes[r][probe]=new RrnaPositionalKmerTable.Table(member, "5prime", k, offset, fiveAlpha, radii[r]);
+					threeProbes[r][probe]=new RrnaPositionalKmerTable.Table(member, "3prime", k, offset, threeAlpha, radii[r]);
 				}
 				if(errors!=null){
 					for(int probe=0; probe<3; probe++){

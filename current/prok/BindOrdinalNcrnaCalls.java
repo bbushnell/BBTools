@@ -5,6 +5,7 @@ import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.Locale;
 
+import fileIO.ReadWrite;
 import map.ObjectSet;
 import parse.LineParser1;
 import parse.Parse;
@@ -33,7 +34,15 @@ public final class BindOrdinalNcrnaCalls{
 		final PreParser pp=new PreParser(args, BindOrdinalNcrnaCalls.class, false);
 		try{
 			final BindOrdinalNcrnaCalls tool=new BindOrdinalNcrnaCalls(pp.args, pp.outstream);
-			tool.process();
+			final boolean bgzip=ReadWrite.USE_BGZIP;
+			try{
+				// The early BGZF preference in ReadWrite.getGZipOutputStream can bypass
+				// allowSubprocess. Native binding must not spawn a compressor per input.
+				if(tool.compressed){ReadWrite.USE_BGZIP=false;}
+				tool.process();
+			}finally{
+				if(tool.compressed){ReadWrite.USE_BGZIP=bgzip;}
+			}
 			timer.stop();
 			pp.outstream.println("ORDINAL_NCRNA_CALLS_BOUND time="+timer);
 		}finally{Shared.closeStream(pp.outstream);}
@@ -56,6 +65,8 @@ public final class BindOrdinalNcrnaCalls{
 				callerConfig=b;
 			}else if(a.equals("expectedinputs")){
 				expectedInputs=Parse.parseIntKMG(b);
+			}else if(a.equals("compressed")){
+				compressed=Parse.parseBoolean(b);
 			}else{require(parser.parse(arg, a, b), "Unknown ordinal-binding option: "+arg);}
 		}
 		input=parser.in1;
@@ -66,6 +77,8 @@ public final class BindOrdinalNcrnaCalls{
 		require(!parser.overwrite && !parser.append && parser.in2==null && parser.out2==null
 			&& parser.maxReads<0 && parser.samplerate==1, "Binding must retain the entire saved query population without overwrite/append");
 		require(new File(input).isAbsolute() && !new File(directory).exists(), "Use an absolute saved GFF and a fresh output directory");
+		require(!compressed || !ReadWrite.FORCE_BGZIP && !ReadWrite.FORCE_PIGZ,
+			"Compressed binding uses internal streams for many small outputs; forcebgzip/forcepigz would spawn a process per input");
 		Shared.setThreads(1);
 	}
 
@@ -78,7 +91,7 @@ public final class BindOrdinalNcrnaCalls{
 		checkConfig();
 		require(new File(directory).mkdir() && new File(directory, "queries").mkdir(), "Could not create fresh binding outputs");
 		try(Input source=new Input(input); Output queries=output("calls.tsv"); Output references=output("references.tsv");
-			Output origins=output("source_lines.tsv"); Output counts=output("inputs.tsv")){
+			Output origins=output(compressed ? "source_lines.tsv.gz" : "source_lines.tsv"); Output counts=output("inputs.tsv")){
 			queries.writer.println(GradeNcrnaReference.MANIFEST_HEADER);
 			references.writer.println(GradeNcrnaReference.MANIFEST_HEADER);
 			origins.writer.println("input_ordinal0\tinput_id\tquery_line\tsource_line");
@@ -94,7 +107,7 @@ public final class BindOrdinalNcrnaCalls{
 				parser.set(row);
 				require(parser.terms()==2 && parser.termEquals(NcrnaLocusComparison.INPUT_HEADER, 0)
 					&& parser.parseInt(1)==binding.ordinal, "Input boundaries must be contiguous in declared order: expected="+binding.ordinal+" source_line="+sourceLine);
-				final String query=new File(directory, "queries/"+binding.ordinal+".gff").getAbsolutePath();
+				final String query=new File(directory, "queries/"+binding.ordinal+(compressed ? ".gff.gz" : ".gff")).getAbsolutePath();
 				long features=0, queryLine=1;
 				try(Output out=new Output(query)){
 					out.writer.println("##gff-version 3");
@@ -209,6 +222,7 @@ public final class BindOrdinalNcrnaCalls{
 	/*--------------------------------------------------------------*/
 
 	private String input, bindings, callerConfig, directory;
+	private boolean compressed=false;
 	private int expectedInputs=-1;
 	private long sourceLine, totalFeatures;
 	private final PrintStream outstream;

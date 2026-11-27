@@ -164,6 +164,8 @@ public final class NcrnaPositionalBoundaryRefiner implements NcrnaBoundaryRefine
 		}
 		/** Immutable common radius, for the trace's positional output schema. */
 		public int radius(){return tables[0].radius;}
+		/** Actual primary table word length, for explicitly bound replay resources. */
+		public int wordLength(){return tables[0].k;}
 		/** Declared confidence margin; an ungated trace requires zero. */
 		public float margin(){return margin;}
 		/** Effective finite signed head margin; unused when the head is ignored. */

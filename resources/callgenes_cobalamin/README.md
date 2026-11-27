@@ -1,49 +1,42 @@
 # Cobalamin riboswitch resources
 
-This package provides cobalamin discovery models and boundary refinement.
-`cobalamin=t` enables the opt-in family; calling remains disabled by default.
+Enable this optional family with `callgenes.sh in=assembly.fa out=calls.gff cobalamin=t`.
+Cobalamin calling remains disabled by default.
 
-The fixed discovery libraries contain 354 RF00174, 47 RF01482 and 11 RF01689
-consensus/HBM models and share forward 17-mer seeds. Their identity cutoffs are
-0.64 for RF00174 and 0.66 for RF01482/RF01689. This package does not change other
-families or choose a new shortlist policy. The manifest binds the shared seeds,
-consensus sequences, compressed HBMs, cutoffs and positional configurations.
+The three libraries contain 354 RF00174, 47 RF01482 and 11 RF01689 consensus/HBM
+models. They share 2,710 forward 17-mer discovery keys and require two distinct
+keys. A merged DDL ranking walk, protected per-key windows and the packaged path
+coefficients select candidates for ordinary gene-path competition. The native
+identity floors are 0.63 for RF00174 and 0.66 for the other two members.
 
-All three libraries and the shared seeds were built from all 95,128 admitted
-genes in the 40,686-genome working roster, with no genomes held out.
-Model reduction used those full gene sets; caller-protection checks used
-1,000-genome and 10,000-genome panels, followed by measured model add-backs.
-These panels were not excluded from resource construction.
+RF00174 uses anchored covariance-model endpoint refinement with learned corridors,
+input-padding overrides and a gathering-threshold hold. RF01482 keeps its compact
+K9 positional tables, supported model offsets and separate networks for each end.
+RF01689 keeps its native endpoints. Refined ends enter ordinary path selection.
+The second-member networks have 69 inputs, 64/48/48 hidden layers and 22 outputs:
+21 positions within radius ten and an out-of-range head. Unsupported offsets remain
+zero; ties and unavailable neural features retain the applicable current span.
 
-RF00174 and RF01482 use supported per-model endpoint offsets followed by separate
-first-stage networks for each end. The offset support floor is ten matches;
-unsupported models retain zero applied offsets. Each network has 69 inputs,
-64/48/48 hidden layers and 22 outputs: 21 positions at radius ten plus an
-out-of-range head. Three K9 tables per end, span geometry and selected-model HBM features
-retain the same training and serving definitions.
+Acceptance is gated by alignment identity. At identity 0.75 or above, the
+acceptance check bypasses further covariance scoring; its lower admission floor
+is 0.60. Below a member's
+native floor only its own covariance model can accept it. At or above that floor,
+other-member covariance evidence requires a passing alignment to that member.
+An acceptance witness does not relabel the emitting model or replace its endpoints.
+Member labels describe the emitting library, not independent biological subtype truth.
 
-The packaged policy is A at both ends, with zero positional and head margins.
-The best in-range move must strictly beat the current position, other positions
-and the out-of-range head; ties hold. A valid model-centered span is retained
-when the head wins or neural features are unavailable. Invalid centering retains
-the original span. Every call is offered to refinement, subject to the existing
-physical-end, feature and span guards. Refined ends enter ordinary path selection.
-There is no deferred reporting or second-stage gate. RF01689 has no positional
-configuration and receives no direct boundary refinement from this package.
+The libraries and discovery seeds were built from all 95,128 admitted original
+genes in the 40,686-assembly working collection. Ordering profiles and the compact
+second-member endpoint resources include the formerly excluded evaluation inputs.
+Measurements on that collection after refitting are in-corpus checks, not independent
+generalization estimates. Constants were selected on development benchmarks.
+The retained covariance corridors have teachers from 96.32% [39,188/40,686] of
+assemblies; 1,498 historical panel/evaluation/alias-group exclusions remain.
+The padding-word blacklist also
+retains its development fit. These are documented best-effort restrictions.
 
-Offsets use all 79,863 recorded matched witnesses from the 40,686-genome working
-roster. Tables and networks include all 91,072 main-member and 2,270 second-member
-original teaching loci; none of the former evaluation genomes is withheld.
-Initialization 58 was fixed before training. Same-locus monitor draws are not
-independent validation. The 1,000-genome and historical 300-genome runs are
-in-sample packaging checks with different reference definitions, not accuracy or
-generalization estimates. Their results belong in the accompanying project
-record, including gains, losses, exact/within-three and endpoint-distance changes.
-
-Weighted tables and HBMs use BGZF compression. Each compressed payload is checked
-against its original bytes after decompression. `cobalaminroot` selects a group
-directory; missing or inconsistent declared resources fail loading. The integrated
-release passed the full build, 33 finite checks and unchanged-default whole-GFF
-regressions on 203 and 223 genomes. Caller timing and reference comparisons on
-10,000 genomes are recorded with their measured gains, losses and limitations;
-the candidate's endpoint results are in-sample, not generalization estimates.
+The manifest and caller policy bind one compatible group of libraries, seeds,
+profiles, windows, coefficients, endpoint resources and acceptance settings.
+`cobalaminroot` selects a replacement group directory. Missing or inconsistent
+resources and incompatible individual overrides fail loading. Payload encoding
+is declared by the actual manifest paths; metadata and small policies remain raw.

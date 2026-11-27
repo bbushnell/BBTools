@@ -2232,7 +2232,7 @@ public final class BuildNcrnaDdlLayoutCounts implements CardinalityTracker.KmerC
 		}
 		return orderedFrequencies(counter.counts);
 	}
-	private static long[] orderedFrequencies(final int[] counts){
+	public static long[] orderedFrequencies(final int[] counts){
 		assert(counts!=null && counts.length>0) : "Prefix sorting requires the actual finite raw-word domain";
 		int positive=0;
 		for(final int count:counts){if(count>0){positive++;}}
@@ -2244,7 +2244,7 @@ public final class BuildNcrnaDdlLayoutCounts implements CardinalityTracker.KmerC
 		Arrays.sort(ordered);
 		return ordered;
 	}
-	private static long rawWord(final long[] words, final int rank){
+	public static long rawWord(final long[] words, final int rank){
 		assert(rank>=0 && rank<words.length) : "Blacklist prefixes retain only observed positive-frequency words";
 		return 0x7fffffffL-(words[words.length-1-rank]&0xffffffffL);
 	}

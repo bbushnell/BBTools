@@ -106,6 +106,7 @@ public final class CompareCobalaminBenchmarkGradesTest{
 		check(shortOverlap, "Expected the short overlapping candidate witness");
 		check(overlaps.contains("d\tr\tLOST_GRADED_REFERENCE\t1\tRF00174\tmain_d\t110\t209\tTP\tr2\t90\t100\t100\t"), "Eligible geometry assigned elsewhere must be visible without a second matching pass");
 		check(read("valid.lengths.tsv").contains("1\tb\tRF01689\tshort_b\tUNMATCHED_OTHER\tr\tSCORED\t93\t187\t93\t"), "Unmatched third-member lengths must not vanish behind TP-only endpoint statistics");
+		changesAudit();
 		pairedCases();
 		unmatchedLengths();
 		reportFormats();
@@ -122,6 +123,52 @@ public final class CompareCobalaminBenchmarkGradesTest{
 	private void invoke(final String candidate, final String output){
 		CompareCobalaminBenchmarkGrades.main(new String[]{"in1="+path("before"), "in2="+path(candidate), "out="+path(output),
 			"subset="+path("main.fa")+','+path("minor.fa")+','+path("third.fa")});
+	}
+
+	/** Six candidate unmatched calls exercise all old-outcome dispositions. The
+	 * retained TP has an extra nearby call, so overlap must not invent ancestry.
+	 * Repeated contig names across inputs and a minus-strand shrink stay separate.
+	 */
+	private void changesAudit() throws Exception{
+		write("audit_before.genomes.tsv", read("before.genomes.tsv")+"f\t1\t0\t1\t0\ng\t1\t0\t0\t1\nh\t0\t0\t0\t0\ni\t2\t0\t1\t1\n");
+		write("audit_after.genomes.tsv", read("after.genomes.tsv").replace("a\t1\t1\t0\t0", "a\t2\t1\t0\t1")
+			+"f\t1\t0\t0\t1\ng\t1\t0\t0\t1\nh\t1\t0\t0\t1\ni\t1\t0\t0\t1\n");
+		for(final String side:new String[]{"before", "after"}){
+			write("audit_"+side+".references.tsv", read(side+".references.tsv"));
+			write("audit_"+side+".witnesses.tsv", read(side+".witnesses.tsv"));
+		}
+		write("audit_before.queries.tsv", read("before.queries.tsv")
+			+"f\tshared\t100\t199\t+\tRF00174\tf\tMASKED\tfalse\t.\n"
+			+"g\tshared\t100\t199\t+\tRF00174\tg\tUNMATCHED_OTHER\tfalse\t.\n"
+			+"i\tshared\t100\t149\t+\tRF00174\ti1\tMASKED\tfalse\t.\n"
+			+"i\tshared\t200\t249\t+\tRF00174\ti2\tUNMATCHED_OTHER\tfalse\t.\n");
+		write("audit_after.queries.tsv", read("after.queries.tsv")
+			+"a\tshared\t150\t180\t+\tRF01689\textra\tUNMATCHED_OTHER\tfalse\t.\n"
+			+"f\tshared\t90\t209\t+\tRF00174\tf\tUNMATCHED_OTHER\tfalse\t.\n"
+			+"g\tshared\t110\t209\t+\tRF00174\tg\tUNMATCHED_OTHER\tfalse\t.\n"
+			+"h\tshared\t100\t199\t+\tRF00174\th\tUNMATCHED_OTHER\tfalse\t.\n"
+			+"i\tshared\t120\t230\t+\tRF00174\ti\tUNMATCHED_OTHER\tfalse\t.\n");
+		CompareCobalaminBenchmarkGrades.main(new String[]{"in1="+path("audit_before"), "in2="+path("audit_after"), "out="+path("audit"), "changesonly=t"});
+		final String counts=read("audit.change_summary.tsv");
+		for(final String expected:new String[]{
+			"candidate_unmatched\tONLY_OLD_LOST_TP\tSHRUNK\t1\t",
+			"candidate_unmatched\tONLY_OLD_RETAINED_TP\tSHRUNK\t1\t",
+			"candidate_unmatched\tONLY_OLD_MASKED\tGROWN\t1\t",
+			"candidate_unmatched\tONLY_OLD_UNMATCHED\tSHIFTED_EQUAL_LENGTH\t1\t",
+			"candidate_unmatched\tMIXED_OLD_OUTCOMES\tMULTIPLE_LINKS\t1\t",
+			"candidate_unmatched\tNO_OLD_CALL_OVERLAP\tNO_LINK\t1\t",
+			"lost_reference\tLOST_SCORED_MATCH\tSHRUNK\t1\t",
+			"lost_reference\tLOST_SCORED_MATCH\tSHIFTED_EQUAL_LENGTH\t1\t",
+			"lost_reference\tLOST_SCORED_MATCH\tNO_LINK\t1\t",
+			"after\tUNMATCHED\tALL\t6\t"}){
+			check(counts.contains(expected), "Literal saved-outcome audit disagrees: "+expected);
+		}
+		check(read("audit.unmatched.tsv").split("\n").length==7 && read("audit.unmatched_links.tsv").split("\n").length==7,
+			"Six unmatched calls conserve one row each; the mixed call keeps both links while the new region has none");
+		check(read("audit.lost.tsv").split("\n").length==4, "Three lost references remain separate from the six unmatched calls");
+		check(read("audit.unmatched_links.tsv").contains("\t31\t-69\t50\t-19\tSHRUNK\t31\t2\t"),
+			"An extra call near a retained TP reports its geometry, original reference overlap and reverse degree two");
+		check(!new File(path("audit.summary.tsv")).exists(), "changesonly must not repeat the previously completed comparison reports");
 	}
 
 	/** Literal coordinates give independent signed errors, populations and sums

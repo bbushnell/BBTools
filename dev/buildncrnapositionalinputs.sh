@@ -12,6 +12,10 @@ Usage: buildncrnapositionalinputs.sh in=contexts.fa out=fresh_directory \
 
 All scientific arguments above are required. exclude= optionally names an explicit
 locus exclusion file. No random subsampling, limits, overwrite or append.
+teachingroutes= and teachingmodels= optionally restrict full-error split-trained
+teaching to frozen TIP model routes using a complete saved vectors.loci.tsv.
+This restriction is separate from outer exclusions. Fresh training winners must
+match the saved native Quantum model axis; ordinary inputs are unchanged without it.
 Every eligible geometry-complete locus teaches each table. Monitoring resamples
 those same eligible loci and is NOT independent validation. Signed jitter draws
 only observed errors within each radius; excluded tails are reported. Empty windows
@@ -22,7 +26,7 @@ startinside=9 startoutside=0 stopinside=9 stopoutside=0
                  endpoint-stopinside+1. Defaults retain fully-inside K9.
                  Per-key smoothing is prior/4^K for each end's actual K.
                  Larger word lengths require a separate storage design.
-tripletables=f   Optional K9 experiment: add endpoint-exclusive left(-9) and
+tripletables=f   Optional equal-K7..9 experiment: add endpoint-exclusive left(-K) and
                  right(+1) tables beside the declared placement. Uses leave-one-
                  locus-out table scores for BOTH training and same-locus monitor.
                  Adds sliding-defined selected-HBM endpoint coverage at -1/0/+1
@@ -52,6 +56,13 @@ fullerrors=f    With interchange=t, use the COMPLETE signed histogram, including
                  error bands. Invalid spans and clipped/ambiguous words remain
                  counted limitations, never out-of-range training rows. These
                  experimental tables are not legacy caller resources.
+enrichmentbits=0 With fullerrors=t, enrichmentbits=12 applies unsigned 6+6
+                 ratio quantization after exact whole-locus subtraction for
+                 training/monitoring. Evaluation/serving use cached decoded
+                 float-log values. All three probes keep their own weighted
+                 backgrounds. Writes dense native A48 tables as weighted.tsv.gz,
+                 plus tables.bytes.tsv before vector generation. Omission keeps
+                 existing score/vector bytes; no evidence pruning is performed.
 refit=f         Explicit all-data product mode, requiring fullerrors=t.
                  Omit exclude=, evaluationseed= and fixed evaluation-row/offset options.
                  Uses every complete eligible original locus, including former

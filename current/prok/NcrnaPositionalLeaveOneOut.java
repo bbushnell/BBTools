@@ -137,7 +137,7 @@ public final class NcrnaPositionalLeaveOneOut{
 
 	/** A valid word's computed score cannot be treated as an unavailable observation. */
 	private float finiteScore(final int word){
-		final float value=(float)scoreKey(word);
+		final float value=weighted==null ? (float)scoreKey(word) : weighted.neuralScoreKey(word);
 		if(!Float.isFinite(value)){throw new IllegalArgumentException("A measured leave-one-out score must fit the finite neural input domain");}
 		return value;
 	}

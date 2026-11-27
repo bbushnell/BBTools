@@ -1,0 +1,29 @@
+# STOCKHOLM 1.0
+#=GF AU Infernal 1.1.5
+
+#=GS cobalamin_RF01689_unknown_c0  DE n=181
+#=GS cobalamin_RF01689_unknown_c1  DE n=394
+#=GS cobalamin_RF01689_unknown_c2  DE n=146
+#=GS cobalamin_RF01689_unknown_c3  DE n=132
+#=GS cobalamin_RF01689_unknown_c4  DE n=24
+#=GS cobalamin_RF01689_unknown_c7  DE n=386
+#=GS cobalamin_RF01689_unknown_c8  DE n=106
+#=GS cobalamin_RF01689_unknown_c9  DE n=95
+#=GS cobalamin_RF01689_unknown_c10 DE n=154
+#=GS cobalamin_RF01689_unknown_c11 DE n=63
+#=GS cobalamin_RF01689_unknown_c12 DE n=41
+
+cobalamin_RF01689_unknown_c0          CAGCCGUUAGagGAAACGGGGAAAGUCCGGUGUAAAUCCGGCGCUGU-CCCGCAACUGU.................GAUGagauacuuua.............uuaucucucaGUCAGAAUGCCCGC..CGAUUG
+cobalamin_RF01689_unknown_c1          CUGUCGCC--..---GCAGGGGAA-UCCGGUGCGAAUCCGGAACUGU-CCCGCAACGGUguacu......cgcgugCAUAcgucgucugugu.........gcacgccugucaGUCCGAGGACCUGC..CGACAG
+cobalamin_RF01689_unknown_c2          AAUUCAGCUU..GGAGUUGGGAAACUCCGGUGAAAUUCCGG-GCUGUGCC-GCAGCUGUgaugg.......gaugcCCAA.................................GUCAGAAUGCCACU..UCAGAU
+cobalamin_RF01689_unknown_c3          AAUUAGUGAA.uGAAAUAGGGAA--GUAGGUGAAAUUCCUACACUGU-CCCGCAACUGUaaggcc.....gugugcUA-A.................................GUCAGAUUACCUAC..UUGAUU
+cobalamin_RF01689_unknown_c4          GCGGUGAAGA..CGCCUCGGGAAAUGCGGGUGGAAACCCUGCGCUAUACCAGUAACCGU.................AAGGaucgcggcagcgcccaggcgcggcggcggcgaaGUCGGAACACCGAG..CCGAGC
+cobalamin_RF01689_unknown_c7          CUGUCGCC--..---GCAGGGGAA-UCCGGUGCGAAUCCGGAACUGU-CCCGCAACGGU.................GAGGggccggcgcga..........gcccgcccgcgaGUCCGAGGACCUGC..CGACGG
+cobalamin_RF01689_unknown_c8          UUUCUGAUU-..AAUCUUGGGAA--UAAGGUGAAAAUCCUUAACUGUCCCCGCAACUGU.................AA-Agugcauuua..............aaugcacgaaGUCAGAUA-CCAAGguCAGAAA
+cobalamin_RF01689_unknown_c9          AUUUAAGAGC..UAUAAAAGGGAA-UCGUGUGAAAAUCACGAGCUGU-CCCGCAACUGUaagcgag..uacuuucgUA-A.................................GCCAGAUUACCUAC..UUAAAU
+cobalamin_RF01689_unknown_c10         CACCUGAAC-..CAUGUGGGGGAAGCCGGU--GAAUU-CCGGGCUGA-CCCGCAACGGUgacgccggcuuucccggCCAA.................................GCCGGAAUGCCCGC..CUGGUU
+cobalamin_RF01689_unknown_c11         UCACUGUAAU..CGGGUAGGGAAACAUCGGUGAAAUUCCGAGGCUGU-CCCGCAACUGUaagucagg.uaucucuaACAA.................................GCCAGAAUGCCUAC..CGAUCA
+cobalamin_RF01689_unknown_c12         CUUCGUUC--..GAUGCAGGGGAAGUCCGGUGGAAAUCCGGCGCUGU-CCCGCAACCGU.................GAUCcgaucgcguuu...........cgcgacggggaGCCAGAUCGCCUGC..ACGAAU
+#=GC SS_cons                          ((((((----..---(((((,,,,,<<<<<_______>>>>>,,<<<____>>>,<<<_.................____.................................__>>>,,,,)))))..))))))
+#=GC RF                               auacugAAau..caUgGuGGGAAAucaguGUGAAAUUCacuggCuguaCCUgcaACgGU.................aAaA.................................GUCcGAGcGCCaCc..caguau
+//

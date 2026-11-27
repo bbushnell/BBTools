@@ -267,7 +267,8 @@ public final class NcrnaFamilyRegistry {
 		true, false, false, 0, 1, 60, -1, false, new String[0], .85f, false, true, 2, null,
 		new BoundaryPolicy("glycine_consensus.fa", "glycine_models.hbmc", 0f, true, 9f, .390625f, .030f, new int[]{0}), null, "", "consensus");
 	private static final Group COBALAMIN_GROUP=new Group("cobalamin", "callgenes_cobalamin", new String[]{"RF00174", "RF01482", "RF01689"},
-		new String[]{"consensus", "models"}, new String[]{"seeds"}, new String[]{"boundary", "boundary_start", "boundary_stop", "cutoffs"});
+		new String[]{"consensus", "models"}, new String[]{"seeds"}, new String[]{"boundary", "boundary_start", "boundary_stop", "cutoffs", "cm", "cm_map", "cm_corridors", "cm_unmapped_models", "cm_input_padding",
+			"caller_policy", "ddl_profiles", "key_bounds", "path_policy", "acceptance_policy"});
 	/** Measured opt-in B12 policies; each member retains its independent length floor. */
 	private static final Entry COBALAMIN_RF00174=cobalamin("RF00174", 109, 384, true, 2f, 0f, 0f, 8);
 	private static final Entry COBALAMIN_RF01482=cobalamin("RF01482", 109, 100, false, 0f, 0f, 0f, -1);
@@ -354,6 +355,9 @@ public final class NcrnaFamilyRegistry {
 			|| role.equals("positional_config") || contains(optionalRoles, role);}
 		boolean permits(String member, String role){
 			assert(role!=null) : "Grouped roles are constrained by the package's declared contract";
+			if(id.equals("cobalamin") && (role.equals("caller_policy") || role.equals("path_policy") || role.equals("acceptance_policy"))){
+				return member.equals("RF00174");
+			}
 			return member.equals(".") ? shared(role) : hasMember(member) && (contains(requiredRoles, role) || optional(role));
 		}
 		private static boolean contains(String[] values, String role){

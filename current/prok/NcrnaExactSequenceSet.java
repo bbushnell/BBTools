@@ -18,7 +18,11 @@ public final class NcrnaExactSequenceSet{
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	public NcrnaExactSequenceSet(){}
+	public NcrnaExactSequenceSet(){this(false);}
+
+	/** Literal-IUPAC mode compares complete symbols, never ambiguity overlap.
+	 * The default keeps the historical defined-base-only admission contract. */
+	public NcrnaExactSequenceSet(final boolean literalIupac_){literalIupac=literalIupac_;}
 
 	/*--------------------------------------------------------------*/
 	/*----------------            Methods           ----------------*/
@@ -58,11 +62,11 @@ public final class NcrnaExactSequenceSet{
 	/*--------------------------------------------------------------*/
 
 	/** Polynomial lookup key; intentional integer wrapping is not sequence proof. */
-	private static int key(final byte[] bases){
+	private int key(final byte[] bases){
 		if(bases==null || bases.length==0){throw new IllegalArgumentException("Exact gene membership requires a nonempty complete sequence");}
 		int key=bases.length;
 		for(final byte value:bases){
-			final int base=RrnaResourceIO.base(value);
+			final int base=base(value);
 			if(base<0){throw new IllegalArgumentException("Undefined bases cannot establish exact gene membership");}
 			key=31*key+base;
 		}
@@ -70,13 +74,20 @@ public final class NcrnaExactSequenceSet{
 	}
 
 	/** Full comparison disambiguates any lookup-key collision. */
-	private static boolean same(final byte[] a, final byte[] b){
+	private boolean same(final byte[] a, final byte[] b){
 		assert(a!=null && b!=null) : "Exact-sequence collision chains retain validated complete arrays";
 		if(a.length!=b.length){return false;}
 		for(int i=0; i<a.length; i++){
-			if(RrnaResourceIO.base(a[i])!=RrnaResourceIO.base(b[i])){return false;}
+			if(base(a[i])!=base(b[i])){return false;}
 		}
 		return true;
+	}
+
+	private int base(final byte value){
+		if(!literalIupac){return RrnaResourceIO.base(value);}
+		final int upper=value&0xdf;
+		final int base=upper=='U' ? 'T' : upper;
+		return "ACGTRYSWKMBDHVN".indexOf(base)>=0 ? base : -1;
 	}
 
 	/*--------------------------------------------------------------*/
@@ -84,6 +95,7 @@ public final class NcrnaExactSequenceSet{
 	/*--------------------------------------------------------------*/
 
 	private final IntHashMap heads=new IntHashMap();
+	private final boolean literalIupac;
 	private final IntList next=new IntList();
 	private final ArrayList<byte[]> sequences=new ArrayList<byte[]>();
 }

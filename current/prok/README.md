@@ -708,9 +708,17 @@ families retain their settings. Missing, repeated or incompletely configured
 loaded members fail before workers or output. Registry, loader and ordinary
 worker construction preserve each packaged stopping policy when the option is
 omitted. SAM-I uses the public fixed 238-model shortlist with patience16;
-cobalamin RF01482/RF01689 keep the public fixed 100-model shortlists and legacy
-stopping. RF00174 uses adaptive cap384/floor2 with patience8. These mapping
-policies do not change family enablement or endpoint refinement.
+cobalamin legacy development groups retain their individual registry policies.
+A complete release cobalamin package instead binds one merged 1,024-bin DDL
+walk, shortlist 100 and patience 4, with DDL admission 10. It uses protected
+per-key windows and the packaged path factors, main-member covariance ends,
+second-member positional tips and alignment-gated covariance acceptance.
+`callgenes.sh cobalamin=t` selects that complete package; the family stays off
+by default. `cobalaminroot=` selects a complete alternate group. Missing or
+mixed policy resources and incompatible explicit endpoint choices fail before
+workers. Main covariance selection precedes opening old main tip payloads.
+These controls leave other family switches unchanged; enabled RNA/CDS competition
+remains part of the final caller evaluation.
 Mapping K, seed and resource selection, identity cutoffs, endpoint models and
 path scoring remain independent; the tRNA `patience=` flag keeps its meaning.
 

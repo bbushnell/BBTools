@@ -1,0 +1,3 @@
+#BBTools cobalamin caller v1
+bins	shortlist	patience	ddl_min_hits	key_percentile	main_pad	second_pad	third_pad	main_ceiling	second_ceiling	third_ceiling	path_cell	acceptance_floor	acceptance_depth	main_cm_policy	main_cm_ga
+1024	100	4	10	99	380	179	123	467	233	199	padding	0.60	25	learned	true

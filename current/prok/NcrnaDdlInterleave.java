@@ -110,6 +110,41 @@ public final class NcrnaDdlInterleave{
 		return size;
 	}
 
+	/** Orders only the supplied native-eligible prefix, then applies the same
+	 * caller cap. Zero DDL scores remain eligible; ties use original model ID.
+	 * Native cutoff, keep-best fallback and counts belong to TrnaKmerIndex. */
+	public int buildEligibleCaller(final float[] scores, final int[] eligible, final int count, final int cap){
+		return buildEligibleCaller(scores, eligible, count, cap, false);
+	}
+	/** A reviewed secondary sorter may supply the complete native-eligible order.
+	 * Raw scores and caller cap still retain their original meanings. */
+	public int buildEligibleCaller(final float[] scores, final int[] eligible, final int count, final int cap,
+			final boolean presorted){
+		require(scores!=null && scores.length==ranks.length && eligible!=null && count>=0
+			&& count<=eligible.length && count<=ranks.length && cap>0 && cap<=ranks.length,
+			"Ordering-only DDL ranking needs the complete score vector and actual native-eligible prefix");
+		ready=false;
+		Arrays.fill(seen, false);
+		Arrays.fill(ranks, 0);
+		Arrays.fill(sketchFirst, false);
+		for(int position=0; position<count; position++){
+			final int model=eligible[position];
+			require(model>=0 && model<ranks.length && !seen[model],
+				"Native eligibility must contain distinct original model IDs");
+			seen[model]=true;
+			final float score=scores[model];
+			require(Float.isFinite(score) && score>=0, "Equal-bin match counts must be finite and nonnegative");
+			sketchScores[model]=score;
+			sketchKeys[position]=pack(Float.floatToIntBits(score==0 ? 0 : score), model);
+		}
+		Arrays.fill(seen, false);
+		if(!presorted){sort(sketchKeys, count);}
+		size=Math.min(cap, count);
+		for(int position=0; position<size; position++){emit(sketchKeys[presorted ? position : count-1-position], position+1, true);}
+		ready=true;
+		return size;
+	}
+
 	/** Complete sketch-only order, including zero-score ties by original ordinal.
 	 * No native counts, floor, positive-only filter or interleave are consulted. */
 	public int buildSketchCaller(final float[] scores, final int cap){

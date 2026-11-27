@@ -12,6 +12,12 @@ preserves NA, separates absent from overlap-present losses and keeps fixed paire
 cohorts. It does not call, grade, fit or select. Endpoint PNGs are a separate plot step.
 
 Inputs are complete ExportCobalaminBenchmarkGrade views from the SAME reference.
+Optional changesonly=t writes only .unmatched.tsv, .unmatched_links.tsv,
+.lost.tsv, .lost_links.tsv and .change_summary.tsv. Each unmatched call has one
+old-outcome disposition, all positive overlap links are retained, and lost scored
+references form a separate population. Geometry is observed, ancestry is not.
+Historical per-call CM scores/contact/anchor flags are unavailable in these
+inputs. This option cannot combine with radius, trace or subset reporting.
 Optional subset=main.fa,minor.fa,third.fa reports named-model retention only when
 both libraries come from the SAME original generation and candidate is a subset.
 Optional radius=6 adds .paired_endpoints.tsv and .paired_loci.tsv for reference

@@ -116,6 +116,16 @@ public final class NcrnaLearningExclusions{
 
 	/** Only the manifest's two explicit path aliases identify an assembly. */
 	private void readManifest(){
+		readManifest(manifest, byAssembly, byPath, assemblyIds, null);
+	}
+
+	/** Shared current-roster parser. The optional sink borrows its row only during
+	 * this callback; sequence payloads and TaxIDs never define assembly identity. */
+	public static void readManifest(final String manifest, final ObjectIntMap<String> byAssembly,
+			final ObjectIntMap<String> byPath, final ArrayList<String> assemblyIds, final ManifestRow sink){
+		check(byAssembly!=null && byPath!=null && assemblyIds!=null
+			&& byAssembly.size()==0 && byPath.size()==0 && assemblyIds.isEmpty(),
+			"A formal roster owns fresh assembly/path indexes before parsing");
 		final LineParser1 p=new LineParser1('\t');
 		try(Input input=new Input(manifest)){
 			RrnaResourceIO.header(input.reader, MANIFEST_HEADER, manifest);
@@ -127,13 +137,20 @@ public final class NcrnaLearningExclusions{
 				final int index=assemblyIds.size();
 				byAssembly.put(id, index);
 				assemblyIds.add(id);
-				alias(p.parseString(3), index);
-				alias(p.parseString(7), index);
+				final String linked=p.parseString(3), source=p.parseString(7);
+				alias(byPath, linked, index);
+				alias(byPath, source, index);
+				if(sink!=null){sink.accept(id, linked, source, p);}
 			}
 		}
 		check(!assemblyIds.isEmpty(), "Working corpus manifest must contain assemblies");
 	}
-	private void alias(final String path, final int assembly){
+
+	public interface ManifestRow{
+		void accept(String assembly, String linkedFasta, String sourceFasta, LineParser1 row);
+	}
+
+	private static void alias(final ObjectIntMap<String> byPath, final String path, final int assembly){
 		final int previous=byPath.get(path);
 		check(path.startsWith("/") && (previous<0 || previous==assembly), "A manifest FASTA alias cannot identify different assemblies: "+path);
 		byPath.put(path, assembly);
@@ -150,5 +167,5 @@ public final class NcrnaLearningExclusions{
 	private final ArrayList<String> assemblyIds=new ArrayList<String>();
 	private long unmatched;
 	private static final String LABEL="# HELD OUT (panel genomes excluded from tables and training): exclusion bindings; not a fitted result";
-	private static final String MANIFEST_HEADER="assembly_id\tinput_id\tcohort\tassembly\tnew_gff\ttaxids\tassembly_accession\tsource_fasta\tsource_new_gff\tassembly_format\tgff_scope\tselection_role";
+	public static final String MANIFEST_HEADER="assembly_id\tinput_id\tcohort\tassembly\tnew_gff\ttaxids\tassembly_accession\tsource_fasta\tsource_new_gff\tassembly_format\tgff_scope\tselection_role";
 }

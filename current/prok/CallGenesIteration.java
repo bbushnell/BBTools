@@ -15,6 +15,11 @@ public interface CallGenesIteration{
 	/** Called on the processing thread after native resources and its PGM load. */
 	Worker create(String input, GeneCaller caller, GeneModel model);
 
+	/** Opt in only when each read executes the native caller exactly once and
+	 * returns its actual path objects, without seed/candidate reuse. This permits
+	 * invocation observation, never boundary score replay across policy iterations. */
+	default boolean supportsBoundaryInvocations(){return false;}
+
 	interface Worker{
 		/** Borrows the read; every successful call must restore its base orientation. */
 		ArrayList<Orf> call(Read read);

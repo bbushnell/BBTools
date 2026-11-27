@@ -484,7 +484,7 @@ public final class NcrnaSupport{
 	/*--------------------------------------------------------------*/
 
 	/** Returns the FASTA identifier; full headers must use printable ASCII. */
-	static String recordName(final String header){
+	public static String recordName(final String header){
 		if(header==null || header.isEmpty()){throw new IllegalArgumentException("FASTA records require a name");}
 		int end=header.length();
 		for(int i=0; i<header.length(); i++){

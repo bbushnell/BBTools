@@ -220,6 +220,21 @@ public final class TrnaKmerIndex {
 		return shortlist(seq, topN, scoreMargin, false);
 	}
 
+	/** Writes the ordinary eligible order into worker-owned scratch. Using the
+	 * full model count preserves every native cutoff/fallback before another
+	 * ranking method applies the caller's original cap. Tail entries are stale. */
+	public int shortlistInto(final byte[] seq, final int topN, final int scoreMargin, final int[] destination){
+		if(seq==null || destination==null || destination.length<nModels){
+			throw new IllegalArgumentException("Native eligibility scratch must hold the complete model roster");
+		}
+		final int[] result=shortlist(seq, topN, scoreMargin, false, destination);
+		final int size=result==destination ? lastResultSize : result.length;
+		if(result!=destination){System.arraycopy(result, 0, destination, 0, size);}
+		assert(size>=0 && size<=nModels && (scoreMargin>=0 || size<=topN))
+			: KillSwitch.assertDie("The borrowed native shortlist prefix must retain its actual eligible count and cap");
+		return size;
+	}
+
 	/** Counts the same unique-query/model-multiplicity matches without model sorting,
 	 * thresholding or allocating a result array. Replaces every destination entry,
 	 * including zeros; scratch and last-query diagnostics belong to this worker.
@@ -238,6 +253,10 @@ public final class TrnaKmerIndex {
 	}
 
 	private int[] shortlist(byte[] seq, int topN, int scoreMargin, final boolean countOnly){
+		return shortlist(seq, topN, scoreMargin, countOnly, null);
+	}
+
+	private int[] shortlist(byte[] seq, int topN, int scoreMargin, final boolean countOnly, final int[] destination){
 		validateTopN(topN);
 		if(scoreMargin < -1){throw new IllegalArgumentException("indexScoreMargin must be -1 (disabled) or >=0: "+scoreMargin);}
 		queries++;
@@ -349,7 +368,8 @@ public final class TrnaKmerIndex {
 		if(scoreMargin<0 && count<1 && acc>0){count=1;}//Legacy keep-best; score-margin mode honors its floor.
 
 		totalShortlisted+=count;
-		final int[] result=new int[count];
+		lastResultSize=count;
+		final int[] result=destination==null ? new int[count] : destination;
 		System.arraycopy(out, 0, result, 0, count);
 		return result;
 	}
@@ -385,4 +405,5 @@ public final class TrnaKmerIndex {
 	/** Total models placed on shortlists = upper bound on alignments issued (the true align count is
 	 * TrnaCaller.alignmentCount, which the borderline early-exit can make smaller). */
 	long totalShortlisted(){return totalShortlisted;}
+	private int lastResultSize;
 }

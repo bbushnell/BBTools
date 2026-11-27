@@ -263,7 +263,71 @@ public final class NcrnaLearningPopulation{
 
 	/** Exact locus lookup; no truncation or guessing of a supplied identifier. */
 	public int index(final String id){return byLocus.get(id);}
-	public boolean eligible(final int gene){return !partial[gene] && !excluded[gene];}
+	public boolean eligible(final int gene){
+		return !partial[gene] && !excluded[gene] && (teachingRoutes==null || teachingModels[gene]>=0 && teachingRoutes.tip(teachingModels[gene]));
+	}
+
+	/** Restricts teaching before any count/background/normalization pass. This is
+	 * independent of excluded[]: a CM-routed locus is not an evaluation example.
+	 * The saved ledger comes from native Quantum model selection on these exact
+	 * original contexts, not from the historical support-graph model bins.
+	 */
+	public void restrictTeaching(final NcrnaModelRoutes routes, final String ledger, final String[] nativeNames){
+		if(teachingRoutes!=null || routes==null || ledger==null || nativeNames==null || routes.size()!=nativeNames.length){
+			throw new IllegalArgumentException("Bind one complete native teaching ledger and matching static route axis before learning");
+		}
+		final int[] selected=new int[ids.length];
+		final int[] statuses=new int[ids.length];
+		final boolean[] seen=new boolean[ids.length];
+		int count=0;
+		try(Input input=new Input(ledger, TEACHING_HEADER, 6)){
+			while(input.next()){
+				final int gene=index(input.text(0));
+				if(gene<0 || seen[gene] || !input.parser.termEquals(sourceName(gene), 1)){
+					throw input.bad("Native teaching ledger requires each original locus and its exact source once");
+				}
+				final int model=input.parser.parseInt(2);
+				final int status=input.parser.parseInt(4);
+				if(model< -1 || model>=nativeNames.length || status<0 || status>NcrnaLearningContext.NO_GC
+					|| model>=0 && !input.parser.termEquals(NcrnaSupport.recordName(nativeNames[model]), 3)
+					|| model<0 && !input.parser.termEquals(".", 3)){
+					throw input.bad("Saved Quantum winner must retain its actual model ordinal/name and context status");
+				}
+				if(!partial[gene] && !excluded[gene]){
+					if(model>=0 ? status!=NcrnaLearningContext.AVAILABLE || !input.parser.termEquals("VECTORIZED_ORIGINAL", 5)
+						: !input.parser.termEquals("NO_SHORTLISTED_MODEL", 5) && !input.parser.termEquals("UNAVAILABLE_CONTEXT", 5)){
+						throw input.bad("A non-panel teaching locus needs its original native training disposition, not an outer or fitted replacement");
+					}
+				}
+				seen[gene]=true;
+				selected[gene]=model;
+				statuses[gene]=status;
+				count++;
+			}
+		}
+		if(count!=ids.length){throw new IllegalArgumentException("Teaching restriction must account for the complete original locus axis");}
+		teachingRoutes=routes;
+		teachingModels=selected;
+		teachingStatuses=statuses;
+	}
+
+	/** Re-selection may verify the saved winner, but cannot change which loci taught the tables. */
+	public void checkTeachingModel(final int gene, final int selected){
+		if(teachingRoutes!=null && teachingModels[gene]!=selected){
+			throw new IllegalArgumentException("Native selected model changed after restricted tables were counted: locus="+ids[gene]
+				+", saved="+teachingModels[gene]+", actual="+selected);
+		}
+	}
+	public void checkTeachingContext(final int gene, final int status){
+		if(teachingRoutes!=null && teachingStatuses[gene]!=status){
+			throw new IllegalArgumentException("Native context availability changed since the saved teaching ledger: "+ids[gene]);
+		}
+	}
+	public boolean restrictedTeaching(){return teachingRoutes!=null;}
+	public int teachingModel(final int gene){
+		if(teachingRoutes==null){throw new IllegalStateException("No native teaching restriction has been bound");}
+		return teachingModels[gene];
+	}
 	public NcrnaLearningSplit.Result split(){return split;}
 	public String sourceName(final int gene){return sources[source[gene]].name;}
 	/** Exact assembly identity already validated against the source-qualified locus ledger. */
@@ -392,6 +456,9 @@ public final class NcrnaLearningPopulation{
 	private int phylumCount;
 	private boolean missingTaxids;
 	private NcrnaLearningSplit.Result split;
+	private NcrnaModelRoutes teachingRoutes;
+	private int[] teachingModels, teachingStatuses;
+	public static final String TEACHING_HEADER="locus_id\tsource\tmodel_index\tmodel\tcontext_status\tdisposition";
 
 	public static final String ROSTER_HEADER="index\tgenome\tassembly\ttaxid\tdomain\tphylum\tgff\tfasta\tloci\tgenome_bases\tcontigs";
 	public static final String LOCUS_HEADER="locus_id\tgenome\tassembly\ttaxid\tdomain\tphylum\tseqid\tstrand\tintervals1\tlength\tsource_line\tsource_ids\tpartial\tpseudo\tstatus\tcontig_length\tedge\tundefined_bases\tlflank\trflank\tsource_lines";

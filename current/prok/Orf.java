@@ -62,6 +62,32 @@ public class Orf extends PFeature {
 		
 		if(flip && strand==Shared.MINUS){flip();}
 	}
+
+	/** Restores a retained path node without sequence or codon recomputation.
+	 * Coordinates are already in the saved current frame; codons and truncation
+	 * flags retain their original sense-frame meaning, independently of flip parity.
+	 * Component scores and optional reporting attributes are restored separately.
+	 */
+	public Orf(final String scafName_, final int start_, final int stop_, final int strand_,
+			final int frame_, final int scaflen_, final int flipped_, final int type_,
+			final int startCodon_, final int stopCodon_, final boolean startTruncated_,
+			final boolean stopTruncated_){
+		super(scafName_, start_, stop_, strand_, scaflen_, flipped_);
+		if(scafName_==null || start_<0 || stop_<start_ || stop_>=scaflen_){
+			throw new IllegalArgumentException("Saved path nodes need a named physical contig span: "+
+				scafName_+":"+start_+".."+stop_+" length="+scaflen_);
+		}
+		if(strand_<0 || strand_>1 || frame_<0 || frame_>2 || type_<CDS || type_>RNA){
+			throw new IllegalArgumentException("Saved path-list and GFF identity is invalid: strand="+
+				strand_+" frame="+frame_+" type="+type_);
+		}
+		frame=frame_;
+		type=type_;
+		startCodon=startCodon_;
+		stopCodon=stopCodon_;
+		startTruncated=startTruncated_;
+		stopTruncated=stopTruncated_;
+	}
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Init Helpers         ----------------*/

@@ -17,6 +17,16 @@ public final class FamilyResourceResolver {
 		loadManifest(NcrnaFamilyRegistry.get(familyId), new File(root, "manifest.tsv").toString());
 	}
 
+	/** Canonical group origin for policies spanning several member directories. */
+	String root(final String familyId, final Overrides overrides){
+		final NcrnaFamilyRegistry.Entry family=NcrnaFamilyRegistry.get(familyId);
+		final String selected=overrides==null ? null : overrides.root;
+		loadManifest(family, selected==null ? Data.findPath("?"+family.directory+"/manifest.tsv", false)
+			: new File(selected, "manifest.tsv").getPath());
+		try{return new File(manifest.source).getCanonicalFile().getParent();}
+		catch(java.io.IOException failure){throw new IllegalArgumentException("Cannot resolve the resource group origin: "+manifest.source, failure);}
+	}
+
 	/** Installed bindings for an export, excluding legacy working-directory overrides. */
 	FamilyResourceManifest installedManifest(String familyId){
 		return exportManifest(familyId, null);
@@ -103,7 +113,9 @@ public final class FamilyResourceResolver {
 		final String manifestPath=o.root==null ? Data.findPath("?"+family.directory+"/manifest.tsv", false) : new File(o.root, "manifest.tsv").toString();
 		// Fully explicit legacy resource overrides may never need a manifest.
 		// An optional new length profile must not add that requirement.
-		if(!required && (role.equals("length_bounds") || role.equals("boundary_config") || role.equals("positional_config"))
+		if(!required && (role.equals("length_bounds") || role.equals("boundary_config") || role.equals("positional_config")
+				|| role.equals("caller_policy") || role.equals("ddl_profiles") || role.equals("key_bounds")
+				|| role.equals("path_policy") || role.equals("acceptance_policy"))
 				&& (manifestPath==null || !new File(manifestPath).isFile())){return null;}
 		loadManifest(family, manifestPath);
 		final String member=family.group!=null && family.group.shared(role) ? "." : family.member;

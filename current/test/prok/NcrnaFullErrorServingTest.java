@@ -57,6 +57,7 @@ public final class NcrnaFullErrorServingTest{
 			parser.overwrite=false;
 			String five=null, three=null, realRoot=null, fiveGate=null, threeGate=null;
 			String realFamily=DEFAULT_REAL_FAMILY;
+			boolean realCompressed=false;
 			long realCount=DEFAULT_REAL_COUNT;
 			for(final String arg:pp.args){
 				final String[] split=Parse.splitOnFirst(arg, '=');
@@ -66,11 +67,12 @@ public final class NcrnaFullErrorServingTest{
 				else if(a.equals("realroot")){realRoot=b;}
 				else if(a.equals("realfamily")){realFamily=b;}
 				else if(a.equals("realcount")){realCount=Parse.parseKMG(b);}
+				else if(a.equals("realcompressed")){realCompressed=Parse.parseBoolean(b);}
 				else if(a.equals("gate5")){fiveGate=b;}
 				else if(a.equals("gate3")){threeGate=b;}
 				else{check(parser.parse(arg, a, b), "Unknown full-error serving fixture option: "+arg);}
 			}
-			check(realRoot!=null || (DEFAULT_REAL_FAMILY.equals(realFamily) && realCount==DEFAULT_REAL_COUNT),
+			check(realRoot!=null || (DEFAULT_REAL_FAMILY.equals(realFamily) && realCount==DEFAULT_REAL_COUNT && !realCompressed),
 				"realfamily= and realcount= require realroot= so requested package bindings are exercised");
 			check(realFamily!=null && realCount>0 && five!=null && three!=null && parser.out1!=null && !parser.overwrite && !parser.append
 				&& parser.in1==null && parser.in2==null && parser.maxReads<0 && parser.samplerate==1
@@ -83,7 +85,7 @@ public final class NcrnaFullErrorServingTest{
 					+" maxGatePackagedDirectDifference="+maxGatePairDifference+" rawMetadataExact=true decisionsIdentical=true");
 			}
 			if(realRoot!=null){
-				realCases(realRoot, realFamily, realCount, five, three);
+				realCases(realRoot, realFamily, realCount, five, three, realCompressed);
 				pp.outstream.println("REAL_SAVED_TABLES_PAIR_PACKAGE_CHECK_PASS_SYNTHETIC_SPANS");
 			}
 			pp.outstream.println("SERVING_ARITHMETIC_PARITY_PASS scalarCases="+scalarCases+" simdCases="+simdCases
@@ -97,7 +99,7 @@ public final class NcrnaFullErrorServingTest{
 	 * This does not replay retained cobalamin evaluation rows or measure accuracy.
 	 */
 	private static void realCases(final String root, final String family, final long teachingCount,
-			final String fivePath, final String threePath){
+			final String fivePath, final String threePath, final boolean compressed){
 		final NcrnaFamilyRegistry.Entry entry=NcrnaFamilyRegistry.get(family);
 		final String member=entry.member==null || entry.member.length()==0 ? entry.id : entry.member;
 		final NcrnaFamilyLoader.Options options=new NcrnaFamilyLoader.Options();
@@ -114,7 +116,7 @@ public final class NcrnaFullErrorServingTest{
 		for(int end=0; end<2; end++){
 			for(int probe=0; probe<3; probe++){
 				weighted[end][probe]=NcrnaWeightedEndpointTable.loadScores(
-					new File(root, member+"/"+(end==0 ? "five" : "three")+probe+".tsv").getPath(), member);
+					new File(root, member+"/"+(end==0 ? "five" : "three")+probe+(compressed ? ".tsv.gz" : ".tsv")).getPath(), member);
 				geometry[end][probe]=weighted[end][probe].geometry;
 				check(geometry[end][probe].counts==null && geometry[end][probe].records==teachingCount,
 					"Real serving scores must bind the declared teaching population without training rows: family="+family
@@ -148,6 +150,7 @@ public final class NcrnaFullErrorServingTest{
 			installed.resolve("sam1", "models", null).path, installed.resolve("sam1", "seeds", null).path};
 		final NcrnaFamily baseline=NcrnaFamilyLoader.load("sam1",
 			PackagedPositionalBoundaryConfigTest.options(core, null, false), new FamilyResourceResolver());
+		compactPackageCases(root, baseline, core, fivePath, threePath);
 		final File payload=new File(root, "payload");
 		check(payload.mkdir(), "Serving fixture payload must be fresh");
 		ReadWrite.copyFile(fivePath, path(payload, "five.bbnet"));
@@ -871,6 +874,81 @@ public final class NcrnaFullErrorServingTest{
 		}
 		PackagedPositionalBoundaryConfigTest.write(path, text.toString());
 	}
+	/** Exercise the package reader, not only the feature constructor, for every
+	 * released compact K. Existing exports provide fixed69/22payloads; these
+	 * synthetic tables test serialization/serving parity, never biological accuracy.
+	 */
+	private static void compactPackageCases(final File root, final NcrnaFamily baseline, final String[] core,
+			final String fivePath, final String threePath){
+		assert(baseline!=null && core.length==3) : "Compact loader fixtures reuse the actual registered core and ordered HBM witness";
+		final CellNet[] nets={CellNetParser.load(fivePath), CellNetParser.load(threePath)};
+		final byte[] sequence=bases(baseline.library[0]);
+		final Distribution distribution=new Distribution(new int[]{-17, 0, 4, 22}, new long[]{2, 4, 1, 3});
+		final NcrnaSignedEndpointErrors errors=new NcrnaSignedEndpointErrors("sam1", distribution, distribution);
+		for(int k=7; k<=9; k++){
+			final File payload=new File(root, "compact_payload_K"+k);
+			check(payload.mkdir(), "Each compact K needs fresh data-only fixture files");
+			ReadWrite.copyFile(fivePath, path(payload, "five.bbnet"));
+			ReadWrite.copyFile(threePath, path(payload, "three.bbnet"));
+			final String hbmName=new File(core[1]).getName();
+			ReadWrite.copyFile(core[1], path(payload, hbmName));
+			PackagedPositionalBoundaryConfigTest.witness(new File(payload, "training.fa"), baseline, false, false);
+			final Table[][] geometry=new Table[2][3];
+			final NcrnaWeightedEndpointTable[][] weighted=new NcrnaWeightedEndpointTable[2][3];
+			for(int end=0; end<2; end++){
+				for(int probe=0; probe<3; probe++){
+					final int offset=probe==0 ? (end==0 ? -2 : 2-k) : probe==1 ? -k : 1;
+					final Table table=new Table("sam1", end==0 ? "5prime" : "3prime", k, offset, 1.0/(1<<(2*k)), 10);
+					final NcrnaWeightedEndpointTable background=new NcrnaWeightedEndpointTable(table, errors);
+					final int truth=end==0 ? PAD : sequence.length-PAD-1;
+					// Weighted tables retain a leave-one-out population and require
+					// at least two loci before finalization (WeightedEndpointTable.finish).
+					for(int locus=0; locus<2; locus++){
+						final byte[] teaching=sequence.clone();
+						teaching[PAD+locus]=(byte)(locus==0 ? 'A' : 'C');
+						table.add(teaching, truth);
+						background.add(teaching, truth);
+					}
+					table.finish();
+					background.finish();
+					background.encodeEnrichment();
+					geometry[end][probe]=table;
+					weighted[end][probe]=background;
+					background.writeScores(path(payload, (end==0 ? "five" : "three")+probe+".tsv"));
+				}
+			}
+			final String recipe=config(0, hbmName).replace("startinside=7", "startinside="+(k-2))
+				.replace("stopinside=8", "stopinside="+(k-1));
+			final String[] files={"five.bbnet", "three.bbnet", "training.fa", hbmName,
+				"five0.tsv", "five1.tsv", "five2.tsv", "three0.tsv", "three1.tsv", "three2.tsv"};
+			final File packaged=PackagedPositionalBoundaryConfigTest.tripleRoot(root, payload, "compact_K"+k, recipe, files);
+			final NcrnaFamily loaded=NcrnaFamilyLoader.load("sam1",
+				PackagedPositionalBoundaryConfigTest.options(core, packaged, null), new FamilyResourceResolver());
+			check(loaded.boundaryRefinerFactory instanceof NcrnaPositionalBoundaryRefiner.Resources,
+				"Every released compact K must reach the actual full-error resource factory");
+			final NcrnaPositionalBoundaryFeatures expected=new NcrnaPositionalBoundaryFeatures(
+				geometry[0], geometry[1], weighted[0], weighted[1], false);
+			final NcrnaPositionalBoundaryRefiner worker=(NcrnaPositionalBoundaryRefiner)loaded.boundaryRefinerFactory.create(loaded);
+			for(final int shift:new int[]{-3, 0, 4}){
+				parity(worker, loaded, expected, nets, sequence, 0, PAD+shift, sequence.length-PAD-1-shift, 0, 0, 0, true);
+			}
+			// Keep both primary offsets unchanged but lie about K in both ends.
+			// Geometry agreement among the six payloads alone cannot catch this.
+			final int delta=k==9 ? -1 : 1;
+			final String mismatch=recipe.replace("startinside="+(k-2), "startinside="+(k-2+delta))
+				.replace("stopoutside=1", "stopoutside="+(1+delta));
+			final File rejected=PackagedPositionalBoundaryConfigTest.tripleRoot(root, payload, "compact_wrong_K"+k, mismatch, files);
+			fails(()->NcrnaFamilyLoader.load("sam1", PackagedPositionalBoundaryConfigTest.options(core, rejected, null), new FamilyResourceResolver()));
+		}
+		for(final int badK:new int[]{6, 10}){
+			final File bad=new File(root, "compact_invalid_K"+badK+".config");
+			PackagedPositionalBoundaryConfigTest.write(bad, config(0, "training.hbmc")
+				.replace("startinside=7", "startinside="+(badK-2)).replace("stopinside=8", "stopinside="+(badK-1)));
+			fails(()->PackagedPositionalBoundaryConfig.read(bad.getPath()));
+		}
+		System.err.println("COMPACT_PACKAGE_K7_K8_K9_SERVING_PARITY_PASS");
+	}
+
 	private static String config(final float margin, final String hbmName){
 		return "schema=ncrna_positional_full_error_v1\nfeatures="+PackagedPositionalBoundaryConfig.TRIPLE_FEATURE_ORDER
 			+"\nfamily=sam1\nenabled=t\nradius=10\nmargin="+margin+"\nstartinside=7\nstartoutside=2\nstopinside=8\nstopoutside=1\n"

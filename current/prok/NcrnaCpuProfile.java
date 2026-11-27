@@ -32,6 +32,7 @@ public final class NcrnaCpuProfile {
 		require(families_>=0 && clock_!=null, "CPU profile requires a family count and supported clock");
 		families=families_; clock=clock_; times=new long[(families+1)*STAGE_COUNT*2]; counts=new long[families*6]; details=new long[families*6];
 		work=new NcrnaAlignmentWork[families+2];
+		executionNames=new String[families];
 		for(int i=0; i<work.length; i++){work[i]=new NcrnaAlignmentWork();}
 	}
 	public void begin(int family, int stage){
@@ -71,7 +72,35 @@ public final class NcrnaCpuProfile {
 		for(int i=0; i<counts.length; i++){counts[i]=Math.addExact(counts[i], other.counts[i]);}
 		for(int i=0; i<details.length; i++){details[i]=Math.addExact(details[i], other.details[i]);}
 		for(int i=0; i<work.length; i++){work[i].add(other.work[i]);}
+		if(other.cmWork!=null){
+			if(cmWork==null){cmWork=new long[other.cmWork.length];}
+			for(int i=0; i<cmWork.length; i++){cmWork[i]=Math.addExact(cmWork[i], other.cmWork[i]);}
+		}
+		for(int i=0; i<families; i++){
+			if(other.executionNames[i]==null){continue;}
+			require(executionNames[i]==null || executionNames[i].equals(other.executionNames[i]),
+				"Joined workers must agree on the actual execution scope name");
+			executionNames[i]=other.executionNames[i];
+		}
+		if(other.clanWork!=null){
+			if(clanWork==null){clanWork=new NcrnaAlignmentWork[]{new NcrnaAlignmentWork(), new NcrnaAlignmentWork(), new NcrnaAlignmentWork()};}
+			for(int member=0; member<3; member++){clanWork[member].add(other.clanWork[member]);}
+		}
 		other.merged=true;
+	}
+
+	/** Resource identities and execution scopes differ only in explicit joint mode. */
+	public void executionName(final int family, final String name){
+		require(!active && !merged && family>=0 && family<families && "cobalamin_clan".equals(name),
+			"Only an inactive combined clan scope may replace its main-slot execution label");
+		executionNames[family]=name;
+	}
+
+	/** Read only after join. Repeated reads replace the same component references;
+	 * merging copies counters, never retains a worker or its refinement contexts. */
+	public void clanComponents(final NcrnaClanScavenger clan){
+		require(!active && !merged && clan!=null, "Read combined kernel subdivisions only after the caller joins");
+		clanWork=new NcrnaAlignmentWork[]{clan.memberWork(0), clan.memberWork(1), clan.memberWork(2)};
 	}
 	public void verification(int family, long alignmentCpu, long shortlistCpu, long hbmCpu, long lengthChecks, long lengthSkips, long spanRejects){
 		require(!active && !merged && family>=0 && family<families, "Read verifier subdivisions only after worker termination");
@@ -79,6 +108,15 @@ public final class NcrnaCpuProfile {
 			"Measured kernel time and model-length counts must be nonnegative and conserve considered models");
 		final int i=family*6;details[i]=alignmentCpu;details[i+1]=shortlistCpu;details[i+2]=hbmCpu;
 		details[i+3]=lengthChecks;details[i+4]=lengthSkips;details[i+5]=spanRejects;
+	}
+	/** Copy scalar endpoint subdivisions after join; never retain the caller or its resources. */
+	public void cmEndpoints(final int family, final long[] values){
+		if(values==null){return;}
+		require(!active && !merged && family>=0 && family<families && values.length==CobalaminCmEndpointRefiner.COUNTER_COUNT,
+			"Completed CM counters must bind one registered family and the declared scalar schema");
+		for(final long value:values){require(value>=0, "CM stage counts and profiled CPU must be nonnegative");}
+		if(cmWork==null){cmWork=new long[families*CobalaminCmEndpointRefiner.COUNTER_COUNT];}
+		System.arraycopy(values, 0, cmWork, family*CobalaminCmEndpointRefiner.COUNTER_COUNT, CobalaminCmEndpointRefiner.COUNTER_COUNT);
 	}
 	/** Joined-worker INIT is index construction, not shared resource loading. */
 	public long initializationCpu(int family){
@@ -92,6 +130,9 @@ public final class NcrnaCpuProfile {
 	}
 	public void write(String path, String[] names){
 		require(!active && !merged && names.length==families, "Only completed aggregate counters may be written");
+		final String[] memberNames=names;
+		names=names.clone();
+		for(int i=0; i<families; i++){if(executionNames[i]!=null){names[i]=executionNames[i];}}
 		RrnaResourceIO.fresh(path, SUFFIXES);
 		final ByteStreamWriter out=RrnaResourceIO.writer(path); final ByteBuilder b=new ByteBuilder();
 		try{
@@ -120,6 +161,53 @@ public final class NcrnaCpuProfile {
 		writeKernels(path+".kernels.tsv", names);
 		writeWindows(path, names);
 		writeProposals(path+".proposals.tsv", names);
+		if(clanWork!=null){writeClanComponents(path+".clan_members.tsv", names);}
+		if(cmWork!=null){writeCmEndpoints(path+".cm_endpoints.tsv", memberNames);}
+	}
+	private void writeCmEndpoints(final String path, final String[] names){
+		require(cmWork!=null && cmWork.length==families*CobalaminCmEndpointRefiner.COUNTER_COUNT && names.length==families,
+			"Endpoint subdivisions must retain the original family axis when shared-walk stage names change");
+		final ByteStreamWriter out=RrnaResourceIO.writer(path);
+		final ByteBuilder row=new ByteBuilder();
+		try{
+			out.println("# CM endpoint subdivisions of caller SCAVENGE CPU; do not add them to outer spans.");
+			out.println("member\t"+CobalaminCmEndpointRefiner.COUNTER_HEADER);
+			for(int family=0; family<families; family++){
+				final int offset=family*CobalaminCmEndpointRefiner.COUNTER_COUNT;
+				if(cmWork[offset]==0){continue;}
+				row.clear().append(names[family]);
+				for(int field=0; field<CobalaminCmEndpointRefiner.COUNTER_COUNT; field++){row.tab().append(cmWork[offset+field]);}
+				out.print(row.nl());
+			}
+		}finally{RrnaResourceIO.finish(out);}
+	}
+
+	/** Member kernel rows subdivide one clan total; never add them to that total. */
+	private void writeClanComponents(final String path, final String[] names){
+		int slot=-1;
+		for(int i=0; i<names.length; i++){if("cobalamin_clan".equals(names[i])){slot=i;}}
+		require(slot>=0, "Member kernel subdivisions require the actual combined execution scope");
+		final NcrnaAlignmentWork total=work[slot], sum=new NcrnaAlignmentWork();
+		for(final NcrnaAlignmentWork component:clanWork){sum.add(component);}
+		require(sum.logical==total.logical && sum.physical==total.physical && sum.hits==total.hits
+			&& sum.modelBases==total.modelBases && sum.queryBases==total.queryBases
+			&& sum.physicalModelBases==total.physicalModelBases && sum.cpuNanos==total.cpuNanos
+			&& sum.hbmCalls==total.hbmCalls && sum.hbmCpuNanos==total.hbmCpuNanos,
+			"Three member kernel subdivisions must conserve the single clan scope exactly, including winner refinement");
+		final ByteStreamWriter out=RrnaResourceIO.writer(path);
+		final ByteBuilder row=new ByteBuilder();
+		final String[] members={"cobalamin_rf00174", "cobalamin_rf01482", "cobalamin_rf01689"};
+		try{
+			out.println("# Subdivisions of cobalamin_clan kernels, not additional work or outer CPU spans.");
+			out.println("member\tlogical_alignments\tphysical_alignments\tcache_hits\tmodel_bases\tcandidate_bases\tphysical_model_bases\talignment_cpu_ns\thbm_calls\thbm_cpu_ns");
+			for(int member=0; member<3; member++){
+				final NcrnaAlignmentWork w=clanWork[member];
+				out.print(row.clear().append(members[member]).tab().append(w.logical).tab().append(w.physical)
+					.tab().append(w.hits).tab().append(w.modelBases).tab().append(w.queryBases)
+					.tab().append(w.physicalModelBases).tab().append(w.cpuNanos)
+					.tab().append(w.hbmCalls).tab().append(w.hbmCpuNanos).nl());
+			}
+		}finally{RrnaResourceIO.finish(out);}
 	}
 
 	/** Only the existing experimental acceptance handoff supplies these events.
@@ -176,7 +264,7 @@ public final class NcrnaCpuProfile {
 				require(logicalWindows==w.windows && physicalWindows==w.windows && requests==w.windowLogical
 					&& executions==w.windowPhysical && requests<=w.logical && executions<=w.physical,
 					"Window histograms must conserve all observed windows and their exact logical/physical work");
-				if("cobalamin_rf00174".equals(name)){
+				if("cobalamin_rf00174".equals(name) || "cobalamin_clan".equals(name)){
 					require(w.windows==counts[family*6+5],
 						"RF00174 histogram units must match every scheduled window; direct oracle work remains outside-window work");
 				}
@@ -234,7 +322,7 @@ public final class NcrnaCpuProfile {
 
 	static void require(boolean ok, String message){if(!ok){throw new IllegalArgumentException(message);}}
 	private static final String[] STAGES={"INIT", "SCAVENGE", "SHARED_SEED_SCAN", "SSU_APPLY", "SSU_FINISH", "FIND_PATH", "TRNA"};
-	private static final String[] SUFFIXES={"", ".verification.tsv", ".kernels.tsv", ".windows.tsv", ".window_hist.tsv", ".proposals.tsv"};
+	private static final String[] SUFFIXES={"", ".verification.tsv", ".kernels.tsv", ".windows.tsv", ".window_hist.tsv", ".proposals.tsv", ".clan_members.tsv", ".cm_endpoints.tsv"};
 	private static final String[] PROPOSAL_STREAMS={"native", "sketch", "sketch_only"};
 	private static final String[] PROPOSAL_SUPPORT={"BELOW_SHIPPED_FLOOR_2", "AT_LEAST_SHIPPED_FLOOR_2", "NA"};
 	final int families;
@@ -244,4 +332,7 @@ public final class NcrnaCpuProfile {
 	private int slot;
 	private boolean active, merged, kernelScope;
 	private final NcrnaAlignmentWork[] work;
+	private final String[] executionNames;
+	private NcrnaAlignmentWork[] clanWork;
+	private long[] cmWork;
 }

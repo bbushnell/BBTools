@@ -10,6 +10,11 @@ The original flat caller configuration must list those inputs in the same order
 and point out= to the saved GFF. Boundaries must be contiguous from zero.
 Every feature row and its order is preserved; query headers are normalized and
 source_lines.tsv maps each new feature line back to its original GFF line.
+Set compressed=t to write queries/*.gff.gz and source_lines.tsv.gz through
+native Java streams, without a compressor subprocess per input. The default
+compressed=f preserves plain query files and the original source-line filename.
+Small manifests remain plain and point explicitly to the selected query paths.
+Compressed mode rejects forcebgzip=t and forcepigz=t before creating outputs.
 Zero-feature inputs retain a file and manifest row. calls.tsv and references.tsv
 feed GradeNcrnaReference; this binder assigns no families and performs no match.
 The inputs and run directory identify the binding; no provenance-only hash is

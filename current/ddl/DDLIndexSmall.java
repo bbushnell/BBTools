@@ -100,11 +100,66 @@ public final class DDLIndexSmall{
 	/*----------------           Queries            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Whether an existing sorted posting run contains this nonempty key.
+	 * This is the non-null posting-list test for this index representation;
+	 * no result list, extra index or reference-key bitset is allocated.
+	 */
+	public boolean hasPosting(final int bin, final int key){
+		assert(bin>=0 && bin<buckets && key>=0 && key<=65535)
+			: shared.KillSwitch.assertDie("Posting membership requires a bound bin and unsigned16-bit key: bin="+bin+", key="+key);
+		if(key==0){return false;}
+		final int[] entries=postings[bin];
+		final int target=key<<16;
+		int low=0;
+		int high=entries.length;
+		while(low<high){
+			final int mid=(low+high)>>>1;
+			if(entries[mid]<target){low=mid+1;}
+			else{high=mid;}
+		}
+		return low<entries.length && (entries[low]>>>16)==key;
+	}
+
 	/** Same native-object query and fresh result semantics as DDLIndexBase. */
 	public int[] query(final DynamicDemiLog query){return query(objectKeys(query));}
 
 	/** Native-object query with caller-owned replacement counters. */
 	public int[] query(final DynamicDemiLog query, final int[] counts){return query(objectKeys(query), counts);}
+
+	/** Replaces raw hits and sums of L/(4+L), where L is the exact bin/key
+	 * posting run, never the entire bin. Optional lengths retain that run size
+	 * for every query bin, including explicit zero for absent/empty keys. */
+	public void querySpecificity(final DynamicDemiLog query, final int[] counts,
+			final double[] sums, final int[] lengths){
+		final char[] keys=objectKeys(query);
+		check(keys, counts);
+		require(sums!=null && sums.length==numClades && (lengths==null || lengths.length==buckets),
+			"Specificity scratch must bind every reference and optional query bin");
+		Arrays.fill(counts, 0);
+		Arrays.fill(sums, 0);
+		if(lengths!=null){Arrays.fill(lengths, 0);}
+		for(int bin=0; bin<buckets; bin++){
+			final int key=keys[bin];
+			if(key==0){continue;}
+			final int[] entries=postings[bin];
+			final int target=key<<16;
+			int low=0, high=entries.length;
+			while(low<high){
+				final int mid=(low+high)>>>1;
+				if(entries[mid]<target){low=mid+1;}else{high=mid;}
+			}
+			final int start=low;
+			while(low<entries.length && (entries[low]>>>16)==key){low++;}
+			final int length=low-start;
+			if(lengths!=null){lengths[bin]=length;}
+			final double contribution=length/(4.0+length);
+			for(int i=start; i<low; i++){
+				final int id=entries[i]&65535;
+				counts[id]++;
+				sums[id]+=contribution;
+			}
+		}
+	}
 
 	/** Queries a frozen index, then REPLACES scores for explicitly changed rows.
 	 * Current rows and IDs are caller-owned; the index remains immutable. A

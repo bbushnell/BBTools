@@ -60,6 +60,13 @@ public class CallGenes extends ProkObject implements AutoCloseable{
 	 * @param args Command line arguments
 	 */
 	public static void main(String[] args){
+		runWithSetup(args, null);
+	}
+
+	/** Native main lifecycle with optional pre-worker configuration. Diagnostic
+	 * drivers use this entry so file-cost installation, startup spans, failure
+	 * propagation and final cleanup remain identical to ordinary main(). */
+	public static void runWithSetup(final String[] args, final java.util.function.Consumer<CallGenes> setup){
 		final CallGenesFileCost costs=CallGenesFileCost.start();
 		fileCost=costs;
 		int exitCode=0;
@@ -74,7 +81,7 @@ public class CallGenes extends ProkObject implements AutoCloseable{
 			x.timeline=timeline;
 
 			//Run the object
-			x.run(t);
+			x.run(t, setup==null ? null : ()->setup.accept(x));
 			if(timeline!=null){timeline.event("OUTPUT_FLUSHED");}
 		}catch(Resources.MissingResourceException e){
 			System.err.print(e.getMessage());
@@ -144,6 +151,12 @@ public class CallGenes extends ProkObject implements AutoCloseable{
 	public CallGenes(String[] args){
 		NCRNA_BOUNDARY_NN_OVERRIDE=null;
 		NCRNA_FAMILY_ROOT=null;
+		COBALAMIN_CM_POLICY=CobalaminCmEndpointRefiner.OFF;
+		COBALAMIN_CM_GA=false;
+		COBALAMIN_CM_MEMBERS=7;
+		COBALAMIN_CM_EXPLICIT=false;
+		COBALAMIN_CM_GA_EXPLICIT=false;
+		COBALAMIN_CM_MEMBERS_EXPLICIT=false;
 		ncrnaCallerPolicy=null;
 		
 		{//Preparse block for help, config files, and outstream
@@ -297,6 +310,8 @@ public class CallGenes extends ProkObject implements AutoCloseable{
 				stopTailStopBoost=Float.parseFloat(b);
 			}else if(a.equals("ncrnaedge")){
 				physicalNcrnaEdges=Parse.parseBoolean(b);
+			}else if(a.equals("ncrnacdsstarts")){
+				rnaAwareCdsStarts=Parse.parseBoolean(b);
 			}else if(a.equals("in") || a.equals("infna") || 
 					a.equals("fnain") || a.equals("fna") || a.equals("ref")){
 				assert(b!=null);
@@ -795,6 +810,8 @@ public class CallGenes extends ProkObject implements AutoCloseable{
 					throw new IllegalArgumentException("cobalaminddl requires the explicit RF00174 profile path");
 				}
 				cobalaminDdlPath=b;
+			}else if(a.equals("cobalaminddlconsensus")){
+				cobalaminDdlConsensus=Parse.parseBoolean(b);
 			}else if(a.equals("cobalamingc")){
 				if(b==null || b.isEmpty()){throw new IllegalArgumentException("cobalamingc requires the complete model-GC table");}
 				cobalaminGcPath=b;
@@ -1151,6 +1168,9 @@ public class CallGenes extends ProkObject implements AutoCloseable{
 
 	/** Explicit RF00174 profile load; an omitted option opens no file. */
 	private void configureCobalaminDdl(){
+		if(cobalaminDdlPath!=null && GeneCaller.cobalaminCallerResources!=null){
+			throw new IllegalArgumentException("The packaged cobalamin caller owns the merged profiles; use its complete group instead of a separate cobalaminddl override");
+		}
 		if(cobalaminGcPath==null && (cobalaminGcWeightSet || cobalaminGcCutSet)){
 			throw new IllegalArgumentException("GC weight/cut options require cobalamingc=model_gc.tsv");
 		}
@@ -1159,7 +1179,11 @@ public class CallGenes extends ProkObject implements AutoCloseable{
 		}
 		if(cobalaminDdlPath==null){
 			if(cobalaminDdlCapSet){throw new IllegalArgumentException("cobalaminddlcap requires cobalaminddl=profile.tsv");}
+			if(cobalaminDdlConsensus){throw new IllegalArgumentException("cobalaminddlconsensus requires cobalaminddl=profile.tsv");}
 			return;
+		}
+		if(cobalaminDdlConsensus && cobalaminGcPath!=null){
+			throw new IllegalArgumentException("Separate consensus scoring cannot also enable experimental GC scoring");
 		}
 		if(passes!=1){throw new IllegalArgumentException("cobalaminddl requires the ordinary passes=1 caller experiment");}
 		NcrnaFamily selected=null;
@@ -1173,7 +1197,7 @@ public class CallGenes extends ProkObject implements AutoCloseable{
 			throw new IllegalArgumentException("cobalaminddl requires a loaded cobalamin RF00174 family");
 		}
 		final long start=System.nanoTime();
-		cobalaminDdlProfiles=NcrnaDdlProfileResource.load(cobalaminDdlPath, selected.modelNames, selected.library);
+		cobalaminDdlProfiles=NcrnaDdlProfileResource.load(cobalaminDdlPath, selected.modelNames, selected.library, cobalaminDdlConsensus);
 		if(cobalaminGcPath!=null){
 			final NcrnaWindowGcProfile gc=NcrnaWindowGcProfile.load(cobalaminGcPath, selected.modelNames,
 				cobalaminGcWeight, cobalaminGcCut, cobalaminGcRange);
@@ -1182,10 +1206,24 @@ public class CallGenes extends ProkObject implements AutoCloseable{
 				+" weight="+gc.weight()+" cutoff="+(gc.observedRange() ? "range" : Double.toString(gc.cutoff()))
 				+" unknown=unadjusted zeroSD=exact");
 		}
+		cobalaminDdlCap=resolveCobalaminDdlCap(cobalaminDdlProfiles.orderOnly(), selected.indexTopN,
+			cobalaminDdlCap, cobalaminDdlCapSet);
 		NcrnaDdlShortlist.validateCap(cobalaminDdlProfiles, cobalaminDdlCap);
-		outstream.println("RF00174 "+(cobalaminDdlProfiles.dual() ? "sketch-only" : "hybrid")+" profiles: models="+cobalaminDdlProfiles.models()
+		outstream.println("RF00174 "+(cobalaminDdlProfiles.orderOnly() ? "native-eligible ordering-only" : cobalaminDdlProfiles.dual() ? "sketch-only" : "hybrid")+" profiles: models="+cobalaminDdlProfiles.models()
 			+" buckets="+cobalaminDdlProfiles.buckets()+" cap="+cobalaminDdlCap
+			+(cobalaminDdlConsensus ? " consensus=separate_raw_match_sum" : "")
 			+" loadSeconds="+((System.nanoTime()-start)*1e-9));
+	}
+
+	/** Ordering-only profiles share the loaded caller policy; legacy modes keep their explicit cap. */
+	public static int resolveCobalaminDdlCap(final boolean orderOnly, final int policyCap,
+			final int requestedCap, final boolean explicit){
+		if(!orderOnly){return requestedCap;}
+		if(policyCap<1 || explicit && requestedCap!=policyCap){
+			throw new IllegalArgumentException("Ordering-only cobalaminddlcap must agree with the loaded RF00174 shortlist policy: policy="
+				+policyCap+", requested="+requestedCap+", explicit="+explicit);
+		}
+		return policyCap;
 	}
 
 	/** Resolves run policy before resource loading; a custom code never inherits missing rows. */
@@ -1589,7 +1627,9 @@ public class CallGenes extends ProkObject implements AutoCloseable{
 	void process(Timer t){
 		// Reject an unsupported trace before any output writer starts.
 		if(ncrnaBoundaryTraceLog!=null){
-			if(iterationFactory!=null){throw new IllegalArgumentException("Boundary tracing does not support policy iteration");}
+			if(iterationFactory!=null && !(ncrnaBoundaryInvocationsOnly && iterationFactory.supportsBoundaryInvocations())){
+				throw new IllegalArgumentException("Boundary tracing requires a single native call with invocation-only observation");
+			}
 			NcrnaBoundaryTrace.validateTarget(ncrnaBoundaryTraceFamily, GeneCaller.ncrnaFamilies, ncrnaBoundaryInvocationsOnly);
 		}
 		final GeneModel defaultPgm=initializeSharedResources();
@@ -1639,7 +1679,7 @@ public class CallGenes extends ProkObject implements AutoCloseable{
 		if(ncrnaBoundaryTraceLog!=null){
 			boundaryTraceBsw=new ByteStreamWriter(ncrnaBoundaryTraceLog, overwrite, false, false);
 			boundaryTraceBsw.start();
-			boundaryTraceBsw.print(ncrnaBoundaryInvocationsOnly ? NcrnaBoundaryTrace.INVOCATION_HEADER : NcrnaBoundaryTrace.HEADER);
+			boundaryTraceBsw.print(NcrnaBoundaryTrace.header(ncrnaBoundaryTraceFamily, GeneCaller.ncrnaFamilies, ncrnaBoundaryInvocationsOnly));
 			boundaryTraceWriter=new NcrnaBoundaryTrace.Writer(boundaryTraceBsw, ncrnaBoundaryTraceFamily, ncrnaBoundaryInvocationsOnly);
 			if(ncrnaSelectionTraceLog!=null){
 				selectionTraceBsw=new ByteStreamWriter(ncrnaSelectionTraceLog, overwrite, false, false);
@@ -2424,6 +2464,28 @@ public class CallGenes extends ProkObject implements AutoCloseable{
 
 	/** Exact configured input paths, copied before a batch driver binds references. */
 	public String[] inputFiles(){return fnaList.toArray(new String[fnaList.size()]);}
+	/** ITS products are derived after the iteration callback, outside its feature list. */
+	public boolean derivesIts(){return callIts;}
+	/** Diagnostic binding includes the effective generic override as well as typed roots. */
+	static String pathFamilyRoot(){return NCRNA_FAMILY_ROOT;}
+	/** Scope of the two fixed-model path experiments; never classify or train for replay. */
+	public void requireFixedPathMode(){
+		if(mode!=TRANSLATE || passes!=1 || maxReads>=0 || useTaxonomy || perContig || merge || ecco || callIts
+			|| proteinReference!=null || stopTailReference!=null || tailCascadeReference!=null
+			|| cmEnabled || rnaAwareCdsStarts || NCRNA_REFRESH_CLAIMED_WINDOWS
+			|| cobalaminDdlProfiles!=null || !"off".equals(annotationMode)){
+			throw new IllegalArgumentException("Bound path replay requires fixed PGM/taxonomy off/one complete pass, "
+				+"unmerged assemblies and no training, ITS, protein, CM, start-selection, refresh or independent DDL experiment");
+		}
+	}
+	/** Actual native fallback after initialization; no source sequence is opened here. */
+	public GeneModel fixedPathModel(){
+		requireFixedPathMode();
+		if(selectionDefaultPgm==null){throw new IllegalStateException("Initialize native replay resources before binding the fixed PGM");}
+		validateReplayModelGeometry(selectionDefaultPgm, selectionDefaultPgm);
+		return selectionDefaultPgm;
+	}
+	public GeneCaller newFixedPathReplayCaller(){return makeGeneCaller(fixedPathModel(), geneticCode);}
 
 	/** Small immutable metadata survives preparation; no complete genome is retained here. */
 	private static final class FileJob{
@@ -3140,6 +3202,7 @@ public class CallGenes extends ProkObject implements AutoCloseable{
 			geneHistT=(geneHistBins>1 ? new long[geneHistBins] : null);
 			caller=new GeneCaller(minLen, maxOverlapSameStrand, maxOverlapOppositeStrand, 
 					minStartScore, minStopScore, minKmerScore, minOrfScore, minAvgScore, pgm, geneticCode);
+			caller.setRnaAwareCdsStarts(rnaAwareCdsStarts);
 			if(cobalaminDdlProfiles!=null){caller.setCobalaminDdl(cobalaminDdlProfiles, cobalaminDdlCap);}
 			caller.setAttemptSink(attemptSink_);
 			if(proteinReference!=null){caller.setProteinSupport(proteinReference);}
@@ -3388,7 +3451,10 @@ public class CallGenes extends ProkObject implements AutoCloseable{
 		}
 		private ArrayList<Orf> processReadBody(final Read r,
 				ArrayList<RrnaItsDeriver.Derived> itsOut, ArrayList<Read> aminoOut){
-			if(boundaryTraceWriter!=null && iteration!=null){throw new IllegalArgumentException("Boundary tracing does not support policy iteration");}
+			if(boundaryTraceWriter!=null && iteration!=null
+				&& !(ncrnaBoundaryInvocationsOnly && iterationFactory.supportsBoundaryInvocations())){
+				throw new IllegalArgumentException("Boundary tracing requires a single native call with invocation-only observation");
+			}
 			emittedSequences=0;
 			ArrayList<Orf> list=iteration==null ? caller.callGenes(r, pgm, true) : iteration.call(r);
 			if((proteinReference!=null || stopTailReference!=null) && list!=null){for(Orf orf : list){if(orf.proteinBonus>0){
@@ -3879,9 +3945,14 @@ public class CallGenes extends ProkObject implements AutoCloseable{
 	/** A group may validate every member before publishing any of its containers. */
 	private static NcrnaFamily loadSharedBoundaryFamily(String name, String seeds, String consensus, String models,
 			int pad, float scoreA, boolean scoreASet, float scoreB, boolean scoreBSet){
+		return loadSharedBoundaryFamily(name, seeds, consensus, models, pad, scoreA, scoreASet, scoreB, scoreBSet, null);
+	}
+	private static NcrnaFamily loadSharedBoundaryFamily(String name, String seeds, String consensus, String models,
+			int pad, float scoreA, boolean scoreASet, float scoreB, boolean scoreBSet, CobalaminCallerResources.Policy callerPolicy){
 		final NcrnaFamilyRegistry.Entry p=NcrnaFamilyRegistry.get(name);
 		assert(p.boundary!=null) : "Generic family loading must not acquire the rRNA endpoint/alignment policy";
 		final NcrnaFamilyLoader.Options options=unifiedFamilyOptions(name);
+		options.cobalaminCallerPolicy=callerPolicy;
 		options.resources.seeds=effectiveNcrnaSeedOverride(name, seeds);
 		options.resources.consensus=explicitNcrnaResource(name, "consensus", consensus);
 		options.resources.models=explicitNcrnaResource(name, "models", models);
@@ -3895,6 +3966,15 @@ public class CallGenes extends ProkObject implements AutoCloseable{
 		}
 		if(NcrnaFamilyRegistry.isCobalamin(name)){
 			options.resources.root=COBALAMIN_RESOURCE_ROOT;
+			final int bit="RF00174".equals(p.member) ? 1 : "RF01482".equals(p.member) ? 2 : 4;
+			options.cobalaminCmPolicy=(COBALAMIN_CM_MEMBERS&bit)==0 ? CobalaminCmEndpointRefiner.OFF : COBALAMIN_CM_POLICY;
+			options.cobalaminCmGa=options.cobalaminCmPolicy!=CobalaminCmEndpointRefiner.OFF && COBALAMIN_CM_GA;
+			if(callerPolicy!=null){
+				// The complete policy resolves omitted flags per member after the
+				// group loader has rejected explicit incompatible selections.
+				options.cobalaminCmPolicy=CobalaminCmEndpointRefiner.OFF;
+				options.cobalaminCmGa=false;
+			}
 			options.minLen=COBALAMIN_MIN_LEN;
 			options.seedMinHits=resolveSweepInt(name, NCRNA_SEED_MIN_HITS_OVERRIDE, p.seedMinHits);
 		}
@@ -4074,15 +4154,25 @@ public class CallGenes extends ProkObject implements AutoCloseable{
 				throw new IllegalStateException("Cobalamin resources are already loaded");
 			}
 		}
+		GeneCaller.cobalaminCallerResources=null;
+		final FamilyResourceResolver resolver=new FamilyResourceResolver();
+		final FamilyResourceResolver.Overrides resources=new FamilyResourceResolver.Overrides();
+		resources.root=COBALAMIN_RESOURCE_ROOT;
+		final CobalaminCallerResources.Policy callerPolicy=CobalaminCallerResources.Policy.find(resolver, resources);
+		if(callerPolicy!=null && (COBALAMIN_CM_EXPLICIT && COBALAMIN_CM_POLICY!=CobalaminCmEndpointRefiner.LEARNED
+			|| COBALAMIN_CM_GA_EXPLICIT && !COBALAMIN_CM_GA || COBALAMIN_CM_MEMBERS_EXPLICIT && COBALAMIN_CM_MEMBERS!=1)){
+			throw new IllegalArgumentException("The packaged cobalamin caller requires learned main-member covariance ends with GA hold; use its complete resource group");
+		}
 		final String[] names={"cobalamin_rf00174", "cobalamin_rf01482", "cobalamin_rf01689"};
 		final NcrnaFamily[] families=new NcrnaFamily[names.length];
 		for(int i=0; i<names.length; i++){
-			families[i]=loadSharedBoundaryFamily(names[i], null, null, null, -1, 0f, false, 0f, false);
+			families[i]=loadSharedBoundaryFamily(names[i], null, null, null, -1, 0f, false, 0f, false, callerPolicy);
 		}
 		final String replacedMember=(NCRNA_KMERS_OVERRIDE!=null || NCRNA_FAMILY_ROOT!=null)
 			&& NcrnaFamilyRegistry.isCobalamin(NCRNA_FAMILY_FILTER) && !"cobalamin".equals(NCRNA_FAMILY_FILTER)
 			? NCRNA_FAMILY_FILTER : null;
 		requireCobalaminGroup(families, replacedMember);
+		final CobalaminCallerResources serving=callerPolicy==null ? null : new CobalaminCallerResources(callerPolicy, families);
 		int modelCount=0;
 		for(NcrnaFamily family:families){
 			GeneCaller.ncrnaFamilies.add(family);modelCount+=family.library.length;
@@ -4095,6 +4185,7 @@ public class CallGenes extends ProkObject implements AutoCloseable{
 		}
 		System.err.println("Cobalamin clan: families="+families.length+" models="+modelCount
 			+" seedKeyCounts="+families[0].kmerSet.size()+","+families[1].kmerSet.size()+","+families[2].kmerSet.size());
+		GeneCaller.cobalaminCallerResources=serving;
 	}
 
 	/** Model prefixes preserve emitted subtype; every shared seed must fan out to all members. */
@@ -5843,6 +5934,8 @@ public class CallGenes extends ProkObject implements AutoCloseable{
 	private boolean perContig=false;
 	/** Default physical-contig-edge rescue; ncrnaedge=f restores the legacy policy. */
 	private boolean physicalNcrnaEdges=true;
+	/** Private cobalamin-clan start-selection experiment; never an implicit default. */
+	private boolean rnaAwareCdsStarts=false;
 	private String taxAddress="refseq";
 	private boolean trnaAlign=true;
 	private boolean trnaLibExplicit=false;
@@ -5922,6 +6015,13 @@ public class CallGenes extends ProkObject implements AutoCloseable{
 	/** Calibrated B12 calling remains opt-in because its measured CPU cost exceeds the default-on budget. */
 	public static boolean COBALAMIN_ENABLED=false;
 	public static String COBALAMIN_RESOURCE_ROOT=null;
+	/** Experimental endpoint method only; the cobalamin family stays separately opt-in. */
+	public static int COBALAMIN_CM_POLICY=CobalaminCmEndpointRefiner.OFF;
+	/** Default-off endpoint hold; the accepted call's detection score is unchanged. */
+	public static boolean COBALAMIN_CM_GA=false;
+	/** Unselected members retain their ordinary packaged endpoint route. */
+	public static int COBALAMIN_CM_MEMBERS=7;
+	private static boolean COBALAMIN_CM_EXPLICIT, COBALAMIN_CM_GA_EXPLICIT, COBALAMIN_CM_MEMBERS_EXPLICIT;
 	public static int COBALAMIN_MIN_LEN=-1;
 	/** Calibrated FMN calling follows the generic-RNA umbrella; explicit opt-out does no resource I/O. */
 	public static boolean FMN_ENABLED=true;
@@ -6030,8 +6130,38 @@ public class CallGenes extends ProkObject implements AutoCloseable{
 			COBALAMIN_RESOURCE_ROOT=value;
 		}else if(key.equalsIgnoreCase("cobalaminminlen")){
 			COBALAMIN_MIN_LEN=parseSweepInt(key, value, 1, Integer.MAX_VALUE);
+		}else if(key.equalsIgnoreCase("cobalamincm")){
+			COBALAMIN_CM_EXPLICIT=true;
+			if("off".equals(value)){COBALAMIN_CM_POLICY=CobalaminCmEndpointRefiner.OFF;}
+			else if("contact".equals(value)){COBALAMIN_CM_POLICY=CobalaminCmEndpointRefiner.CONTACT;}
+			else if("32".equals(value)){COBALAMIN_CM_POLICY=CobalaminCmEndpointRefiner.FIXED_32;}
+			else if("32only".equals(value)){COBALAMIN_CM_POLICY=CobalaminCmEndpointRefiner.ONLY_32;}
+			else if("32to64".equals(value)){COBALAMIN_CM_POLICY=CobalaminCmEndpointRefiner.RETRY_64;}
+			else if("24to64".equals(value)){COBALAMIN_CM_POLICY=CobalaminCmEndpointRefiner.RETRY24_64;}
+			else if("24to48".equals(value)){COBALAMIN_CM_POLICY=CobalaminCmEndpointRefiner.RETRY24_48;}
+			else if("learned".equals(value)){COBALAMIN_CM_POLICY=CobalaminCmEndpointRefiner.LEARNED;}
+			else if("pooled".equals(value)){COBALAMIN_CM_POLICY=CobalaminCmEndpointRefiner.POOLED;}
+			else{throw new IllegalArgumentException("cobalamincm requires off, contact, 32, 32only, 32to64, 24to64, 24to48, learned or pooled");}
+		}else if(key.equalsIgnoreCase("cobalamincmga")){
+			COBALAMIN_CM_GA_EXPLICIT=true;
+			COBALAMIN_CM_GA=Parse.parseBoolean(value);
+		}else if(key.equalsIgnoreCase("cobalamincmmembers")){
+			COBALAMIN_CM_MEMBERS_EXPLICIT=true;
+			COBALAMIN_CM_MEMBERS=parseCobalaminCmMembers(value);
 		}else{return false;}
 		return true;
+	}
+	private static int parseCobalaminCmMembers(final String value){
+		if("all".equalsIgnoreCase(value)){return 7;}
+		if(value==null || value.isEmpty()){throw new IllegalArgumentException("cobalamincmmembers requires all or a comma list of RF00174, RF01482, RF01689");}
+		int mask=0;
+		for(final String member:value.split(",", -1)){
+			final int bit="RF00174".equalsIgnoreCase(member) ? 1 : "RF01482".equalsIgnoreCase(member) ? 2 : "RF01689".equalsIgnoreCase(member) ? 4 : 0;
+			if(bit==0 || (mask&bit)!=0){throw new IllegalArgumentException("Unknown or repeated cobalamincmmembers entry: "+member);}
+			mask|=bit;
+		}
+		assert(mask>0 && mask<=7) : "Each selected B12 member has one distinct registry bit for endpoint routing";
+		return mask;
 	}
 	/** Calibrated default-on endpoint controls; explicit subtype false retains the opt-out. */
 	public static final SixsBoundaryConfig SIXS_RF00013_BOUNDARY_CONFIG=new SixsBoundaryConfig("sixs_rf00013");
@@ -6142,6 +6272,8 @@ public class CallGenes extends ProkObject implements AutoCloseable{
 	private static NcrnaCallerPolicy ncrnaCallerPolicy;
 	/** Omitted path means no profile I/O, worker scratch or experimental ORF fields. */
 	private String cobalaminDdlPath;
+	/** Default-off separate consensus sketches; member resource contents remain unchanged. */
+	private boolean cobalaminDdlConsensus;
 	private String cobalaminGcPath;
 	private double cobalaminGcWeight, cobalaminGcCut;
 	private boolean cobalaminGcWeightSet, cobalaminGcCutSet, cobalaminGcRange;
@@ -6234,6 +6366,15 @@ public class CallGenes extends ProkObject implements AutoCloseable{
 		assert(!TMRNA_ENABLED || NCRNA_FAMILIES_ENABLED) : "tmrna=t requires ncrna=t (or generalncrna=t)";
 		assert(!SIXS_ENABLED || NCRNA_FAMILIES_ENABLED) : "sixs=t requires ncrna=t (or generalncrna=t)";
 		if(COBALAMIN_ENABLED && !NCRNA_FAMILIES_ENABLED){throw new IllegalArgumentException("cobalamin=t requires ncrna=t");}
+		if(COBALAMIN_CM_POLICY!=CobalaminCmEndpointRefiner.OFF && !COBALAMIN_ENABLED){
+			throw new IllegalArgumentException("cobalamincm requires cobalamin=t; it does not enable a family implicitly");
+		}
+		if(COBALAMIN_CM_GA && COBALAMIN_CM_POLICY==CobalaminCmEndpointRefiner.OFF){
+			throw new IllegalArgumentException("cobalamincmga=t requires an enabled cobalamincm policy");
+		}
+		if(COBALAMIN_CM_MEMBERS!=7 && COBALAMIN_CM_POLICY==CobalaminCmEndpointRefiner.OFF){
+			throw new IllegalArgumentException("An explicit cobalamincmmembers subset requires an enabled cobalamincm policy");
+		}
 		if(FMN_ENABLED && !NCRNA_FAMILIES_ENABLED){throw new IllegalArgumentException("fmn=t requires ncrna=t");}
 		if(SAM1_ENABLED && !NCRNA_FAMILIES_ENABLED){throw new IllegalArgumentException("sam1=t requires ncrna=t");}
 		if(TPP_ENABLED && !NCRNA_FAMILIES_ENABLED){throw new IllegalArgumentException("tpp=t requires ncrna=t");}

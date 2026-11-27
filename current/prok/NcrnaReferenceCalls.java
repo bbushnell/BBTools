@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import parse.LineParser1;
 import prok.NcrnaGffFamilyGrader.Locus;
 import prok.NcrnaTextIO.Input;
+import prok.NcrnaObservationData.Symbols;
 
 /** Reads CallGenes query GFFs through an explicit model-to-scoring-family map.
  * CallGenes uses literal contig names and comma-delimited model:/family: fields,
@@ -76,6 +77,16 @@ public final class NcrnaReferenceCalls{
 		require(input!=null && !input.isEmpty(), "Live calls require the original manifest input identity");
 		return new Result(input, rules.length);
 	}
+	/** Parses one borrowed native generic-RNA GFF row without changing population
+	 * counters. Returns the same owned call as read(); non-RNA rows are rejected.
+	 * Useful to consumers that handle CDS rows in the same streaming input pass.
+	 */
+	public Call parseReport(final byte[] line, final long lineNumber, final String path){
+		parser.set(line);
+		check(parser.terms()==9 && parser.termEquals("BBTools", 1) && parser.termEquals("RNA", 2),
+			"Expected one native generic-RNA GFF row", path, lineNumber);
+		return parse(line, lineNumber, path);
+	}
 
 	/** Projects a native final path without serializing an intermediate GFF. Uses
 	 * Orf.appendGff's one-based bounds, first-token contig and display-family label.
@@ -83,34 +94,68 @@ public final class NcrnaReferenceCalls{
 	 */
 	public void add(final Result result, final Orf orf){
 		assert(result!=null && orf!=null) : "Live grading consumes actual final-path records";
+		addReport(result, orf.type, orf.scafName, orf.start, orf.stop, orf.strand, orf.trnaModel, orf.ncrnaFamily);
+	}
+
+	/** Projects native report metadata without creating a temporary Orf. Bounds
+	 * are zero-based inclusive and already forward-genomic, including reverse
+	 * reports; this method never applies a strand flip. The input name follows
+	 * Orf.appendGff's first-token/ASCII contract. A snapshot consumer may call this
+	 * once per potential candidate to prepare immutable query loci, but those are
+	 * NOT selected calls. In that use, Call.line is a candidate ordinal rather
+	 * than an emitted GFF line; keep selected trial order separately.
+	 */
+	public void addReport(final Result result, final int type, final String name,
+			final int start, final int stop, final int strand, final String model, final String family){
+		assert(result!=null) : "Report projection needs an explicitly bound input population";
 		result.features++;
-		if(orf.type==ProkObject.CDS){result.cds++;return;}
-		if(orf.type==ProkObject.tRNA){result.trna++;return;}
-		if(orf.type==ProkObject.r16S || orf.type==ProkObject.r23S
-				|| orf.type==ProkObject.r5S || orf.type==ProkObject.r18S){result.rrna++;return;}
-		require(orf.type==ProkObject.RNA && orf.trnaModel!=null, "Live query must be a modeled generic RNA");
-		requireAscii(orf.trnaModel);
-		final int ruleIndex=projectModel(orf.trnaModel);
-		final Rule rule=rules[ruleIndex];
-		if(orf.ncrnaFamily!=null){
-			require(rule.displayLabel.equals(NcrnaFamilyRegistry.displayName(orf.ncrnaFamily)),
-				"Live family label conflicts with model projection: "+orf.ncrnaFamily);
+		if(type==ProkObject.CDS){
+			result.cds++;
+			return;
 		}
-		final String name=orf.scafName;
+		if(type==ProkObject.tRNA){
+			result.trna++;
+			return;
+		}
+		if(type==ProkObject.r16S || type==ProkObject.r23S || type==ProkObject.r5S || type==ProkObject.r18S){
+			result.rrna++;
+			return;
+		}
+		require(type==ProkObject.RNA && model!=null, "Live query must be a modeled generic RNA");
+		requireAscii(model);
+		final int ruleIndex=projectModel(model);
+		final Rule rule=rules[ruleIndex];
+		if(family!=null){
+			require(rule.displayLabel.equals(NcrnaFamilyRegistry.displayName(family)),
+				"Live family label conflicts with model projection: "+family);
+		}
+		final String contig=reportContig(name);
+		require(start>=0
+			&& stop>=start && stop<Integer.MAX_VALUE && (strand==0 || strand==1),
+			"Live query must fit the saved-GFF coordinate and strand contract");
+		final Call call=new Call(new Locus(contig, rule.family, start+1, stop+1,
+			strand==0 ? '+' : '-'), model, result.features, ruleIndex, rule.include);
+		result.calls.add(call);
+		result.ruleCounts[ruleIndex]++;
+		if(call.included){result.included++;}
+		else{result.excluded++;}
+	}
+
+	/** Literal first-token identity emitted by Orf.appendGff, with its ASCII limit. */
+	public static String reportContig(final String name){
 		require(name!=null, "A live generic RNA query needs a literal contig name");
 		int end=0;
 		while(end<name.length() && name.charAt(end)!=' ' && name.charAt(end)!='\t'){end++;}
 		final String contig=end==name.length() ? name : name.substring(0, end);
 		requireAscii(contig);
-		require(!contig.isEmpty() && !contig.equals(".") && orf.start>=0
-			&& orf.stop>=orf.start && orf.stop<Integer.MAX_VALUE && (orf.strand==0 || orf.strand==1),
-			"Live query must fit the saved-GFF coordinate and strand contract");
-		final Call call=new Call(new Locus(contig, rule.family, orf.start+1, orf.stop+1,
-			orf.strand==0 ? '+' : '-'), orf.trnaModel, result.features, ruleIndex, rule.include);
-		result.calls.add(call);
-		result.ruleCounts[ruleIndex]++;
-		if(call.included){result.included++;}
-		else{result.excluded++;}
+		require(!contig.isEmpty() && !contig.equals("."), "Live query must fit the saved-GFF contig contract");
+		return contig;
+	}
+
+	/** Whether this explicit query projection includes a scoring family. */
+	public boolean scoresFamily(final String family){
+		for(final Rule rule:rules){if(rule.include && rule.family.equals(family)){return true;}}
+		return false;
 	}
 
 	/** Orf.appendGff uses ByteBuilder's byte-oriented char/string append. Reject
@@ -140,6 +185,26 @@ public final class NcrnaReferenceCalls{
 			selected=i;
 		}
 		require(selected>=0, "Unknown generic RNA model; add an explicit include/exclude mapping: "+model);
+		return selected;
+	}
+	/** Immutable explicit family/include rule for a named generic-RNA model. */
+	public Rule modelRule(final String model){return rules[projectModel(model)];}
+	/** Same whole-prefix rule as the String route, on a borrowed model token.
+	 * No row String, model String or Call is allocated. This read-only method may
+	 * share immutable rules; unlike parseReport(), it never touches the parser.
+	 */
+	public Rule modelRule(final byte[] model, final int from, final int to){
+		require(model!=null && from>=0 && from<to && to<=model.length,
+			"Byte model projection requires a nonempty bounded model token");
+		Rule selected=null;
+		for(final Rule rule:rules){
+			if(!starts(model, from, to, rule.prefixBytes)){continue;}
+			final int after=from+rule.prefixBytes.length;
+			if(after<to && model[after]!='_' && model[after]!=' ' && model[after]!='\t'){continue;}
+			require(selected==null, "Ambiguous whole-prefix family projection for a saved model token");
+			selected=rule;
+		}
+		require(selected!=null, "Unknown generic RNA model; add an explicit include/exclude mapping for the saved token");
 		return selected;
 	}
 
@@ -212,6 +277,7 @@ public final class NcrnaReferenceCalls{
 			require(family_!=null && !family_.isEmpty() && modelPrefix_!=null && !modelPrefix_.isEmpty()
 				&& displayLabel_!=null && !displayLabel_.isEmpty(), "A query rule needs scoring family, model prefix and expected display label");
 			family=family_;
+			familyBytes=family.getBytes(StandardCharsets.UTF_8);
 			modelPrefix=modelPrefix_;
 			displayLabel=displayLabel_;
 			include=include_;
@@ -222,7 +288,13 @@ public final class NcrnaReferenceCalls{
 		}
 		public final String family, modelPrefix, displayLabel;
 		public final boolean include;
-		private final byte[] prefixBytes, labelBytes;
+		/** Intern the canonical scoring family without allocating bytes per report. */
+		int internFamily(final Symbols symbols){return symbols.intern(familyBytes, 0, familyBytes.length);}
+		/** Corroborate a borrowed display label using the saved-reader byte contract. */
+		boolean matchesLabel(final byte[] row, final int from, final int to){
+			return to-from==labelBytes.length && starts(row, from, to, labelBytes);
+		}
+		private final byte[] prefixBytes, labelBytes, familyBytes;
 	}
 
 	/** Original generic RNA row and its explicit projection, retaining duplicates. */

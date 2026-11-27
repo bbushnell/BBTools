@@ -30,19 +30,32 @@ public final class NcrnaWindowGcProfile{
 		sd=new double[models];
 		minimum=new double[models];
 		maximum=new double[models];
+		support=new long[models];
 	}
 
 	/** Cold metadata parsing deliberately uses round-trip Java doubles, including
 	 * scientific notation. No strings or objects are allocated during scoring. */
 	public static NcrnaWindowGcProfile load(final String path, final String[] names,
 			final double weight, final double cutoff, final boolean range){
+		return load(path, names, weight, cutoff, range, false);
+	}
+
+	/** Reuses the checked moments schema, without enabling the historical SD gate. */
+	public static NcrnaWindowGcProfile loadClanMeans(final String path, final String[] names){
+		return load(path, names, 0, 1, false, true);
+	}
+
+	private static NcrnaWindowGcProfile load(final String path, final String[] names,
+			final double weight, final double cutoff, final boolean range, final boolean clan){
 		require(path!=null && names!=null && names.length>0, "GC profiles must bind the actual nonempty caller library");
 		final NcrnaWindowGcProfile result=new NcrnaWindowGcProfile(names.length, weight, cutoff, range);
 		final ObjectIntMap<String> ordinals=new ObjectIntMap<String>(names.length, String.class);
 		for(int model=0; model<names.length; model++){
 			require(names[model]!=null, "Every GC profile needs a named actual caller model");
 			final String name=RrnaResourceIO.first(names[model]);
-			require(name.startsWith("cobalamin_RF00174_") && !ordinals.contains(name), "GC profile model identities must be unique RF00174 names");
+			require((name.startsWith("cobalamin_RF00174_") || clan && (name.startsWith("cobalamin_RF01482_")
+				|| name.startsWith("cobalamin_RF01689_"))) && !ordinals.contains(name),
+				"GC profile model identities must be unique names on the explicitly requested member axis");
 			ordinals.put(name, model);
 		}
 		final LineParser1 p=new LineParser1('\t');
@@ -77,6 +90,7 @@ public final class NcrnaWindowGcProfile{
 					: members>1 && max>min && p.termEquals("FIT", 7),
 					"Zero-SD and fitted states must agree with the saved counts and actual range");
 				result.known[model]=true;
+				result.support[model]=members;
 				result.mean[model]=mean;
 				result.sd[model]=sd;
 				result.minimum[model]=min;
@@ -143,6 +157,9 @@ public final class NcrnaWindowGcProfile{
 	public double weight(){return weight;}
 	public double cutoff(){return cutoff;}
 	public boolean observedRange(){return range;}
+	public boolean known(final int model){return known[model];}
+	public double mean(final int model){return mean[model];}
+	public long support(final int model){return support[model];}
 	private static void require(final boolean valid, final String why){if(!valid){throw new IllegalArgumentException(why);}}
 
 	/*--------------------------------------------------------------*/
@@ -151,6 +168,7 @@ public final class NcrnaWindowGcProfile{
 
 	private final boolean[] known;
 	private final double[] mean, sd, minimum, maximum;
+	private final long[] support;
 	private final double weight, cutoff;
 	private final boolean range;
 	private int knownModels;

@@ -17,8 +17,20 @@ public final class GeneCallerPathTrace{
 	 */
 	public interface Observer{
 		void begin(String contig, int contigLength, int candidates);
+		default void nodeClass(long id, String className){}
+		default void scoreBasis(long id, String family, String model, int nativeModel,
+			int alignedLength, float identity, float additive, float multiplier, float assignedScore){}
 		boolean candidate(long id, int start, int stop, int strand, int frame, int type,
 			int stopLeft, float score, float bonus, boolean nativeMeasured, float nativeScore);
+		/** Optional complete node metadata; no mutable candidate or sequence escapes.
+		 * Deferred bounds are in the original sense frame; absent bounds are -1.
+		 * Dependency flags let a replay reader reject unsupported evidence policies.
+		 */
+		default void metadata(long id, int flipped, int startCodon, int stopCodon,
+			boolean startTruncated, boolean stopTruncated, float startScore, float stopScore,
+			float kmerScore, float oppositePenalty, String model, String anticodon, String family,
+			int partial, float acceptedRrnaIdentity, boolean deferred, int reportedStart, int reportedStop,
+			boolean proteinEvidence, boolean ssuEvidence){}
 		void edge(long node, long predecessor, int predecessorStrand, int overlap, float predecessorScore,
 			int predecessorLength, float overlapScore, float beforeTransitions, float proposedScore,
 			int proposedLength, boolean replaces);
@@ -29,6 +41,10 @@ public final class GeneCallerPathTrace{
 	}
 
 	GeneCallerPathTrace(Observer observer_, ArrayList<Orf>[] frames_, int length, boolean cascade){
+		this(observer_, frames_, length, cascade, null);
+	}
+	GeneCallerPathTrace(Observer observer_, ArrayList<Orf>[] frames_, int length, boolean cascade,
+			NcrnaPathScoreBasis scoreBasis){
 		require(observer_!=null && frames_!=null && frames_.length==6 && length>=0,
 			"Path observations require six retained frame lists and a real contig length");
 		observer=observer_; frames=frames_; int count=0; String name=null;
@@ -59,6 +75,19 @@ public final class GeneCallerPathTrace{
 					"Path observations cannot publish nonfinite candidate scores");
 				wanted[f][i]=observer.candidate(id(f, i), orf.start, orf.stop, orf.strand, orf.frame, orf.type,
 					stopLeft, orf.orfScore, orf.proteinBonus, nativeMeasured, nativeMeasured ? orf.tailCascadeNativeScore : 0);
+				observer.nodeClass(id(f, i), orf.getClass().getName());
+				final NcrnaReportedOrf deferred=orf instanceof NcrnaReportedOrf ? (NcrnaReportedOrf)orf : null;
+				final boolean proteinEvidence=orf.proteinEvidence!=null || orf.stopTailEvidence!=null
+					|| orf.tailCascadeAssignment!=null || orf.tailCascadePin!=null
+					|| orf.proteinOnlyCandidate || orf.tailCascadeProtected;
+				final boolean ssuEvidence=orf.ssuFullModel!=null || orf.ssuFullModelName!=null || orf.ssuClippedMitoRescue;
+				observer.metadata(id(f, i), orf.flipped(), orf.startCodon, orf.stopCodon,
+					orf.startTruncated, orf.stopTruncated, orf.startScore, orf.stopScore, orf.kmerScore,
+					orf.tailCascadeOppositePenalty, orf.trnaModel, orf.trnaAnticodon, orf.ncrnaFamily,
+					orf.ncrnaPartial, orf.acceptedRrnaIdentity, deferred!=null,
+					deferred==null ? -1 : deferred.reportedSenseStart(), deferred==null ? -1 : deferred.reportedSenseStop(),
+					proteinEvidence, ssuEvidence);
+				if(scoreBasis!=null){scoreBasis.emit(orf, id(f, i), observer);}
 				wantedFrame[f]|=wanted[f][i];
 			}
 		}

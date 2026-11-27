@@ -27,6 +27,35 @@ public final class CovarianceModelConsensusMap {
 	 * the unchanged candidate coordinate domain before adding the usual radius. */
 	public CovarianceModelPlacementBands compose(AlignmentStats stats, int windowStart,
 			int candidateStart, int candidateStop, int radius, boolean extendClipped){
+		return project(stats, windowStart, candidateStart, candidateStop, radius, extendClipped, false);
+	}
+	/** Placement for endpoint search on the complete padded reference window.
+	 * Unlike compose(), this keeps both terminal predictions from the trace. */
+	public CovarianceModelPlacementBands composeWindow(AlignmentStats stats, int radius){
+		if(stats==null || stats.matchString==null){return null;}
+		return project(stats, 0, 0, stats.rLen-1, radius, false, true);
+	}
+	/** Borrow an existing full-query trace without moving or rebuilding it.
+	 * Trace origin and padded search bounds share one sense-oriented contig. */
+	public CovarianceModelPlacementBands composeWindow(AlignmentStats stats, int traceOrigin,
+			int windowStart, int windowStop, int radius){
+		return project(stats, traceOrigin, windowStart, windowStop, radius, false, true);
+	}
+	/** A separate anchor context can place raw boundaries outside the search
+	 * window. Preserve those coordinates until learned residuals are applied;
+	 * the placement intersects the resulting intervals with the search domain.
+	 */
+	public CovarianceModelPlacementBands composeWindowUnclipped(final AlignmentStats stats, final int traceOrigin,
+			final int windowStart, final int windowStop, final int radius){
+		return project(stats, traceOrigin, windowStart, windowStop, radius, false, true, false);
+	}
+	private CovarianceModelPlacementBands project(AlignmentStats stats, int windowStart,
+			int candidateStart, int candidateStop, int radius, boolean extendClipped, boolean freeEnds){
+		return project(stats, windowStart, candidateStart, candidateStop, radius, extendClipped, freeEnds, true);
+	}
+	private CovarianceModelPlacementBands project(final AlignmentStats stats, final int windowStart,
+			final int candidateStart, final int candidateStop, final int radius, final boolean extendClipped,
+			final boolean freeEnds, final boolean clipToWindow){
 		require(windowStart>=0 && candidateStart>=0 && candidateStop>=candidateStart
 			&& (long)candidateStop-candidateStart<Integer.MAX_VALUE && radius>=0,
 			"Anchor composition requires inclusive candidate bounds on one oriented chromosome");
@@ -66,11 +95,18 @@ public final class CovarianceModelConsensusMap {
 		final long shift=(long)windowStart-candidateStart;
 		final int[] targetLow=new int[low.length], targetHigh=new int[high.length];
 		for(int m=0; m<low.length; m++){
-			targetLow[m]=clip(queryLow[low[m]]+shift, length);
-			targetHigh[m]=clip(queryHigh[high[m]]+shift, length);
+			final long left=queryLow[low[m]]+shift, right=queryHigh[high[m]]+shift;
+			require(clipToWindow || left>=Integer.MIN_VALUE && right<=Integer.MAX_VALUE,
+				"Translated context anchors must fit signed coordinates before residuals and search clipping");
+			targetLow[m]=clipToWindow ? clip(left, length) : (int)left;
+			targetHigh[m]=clipToWindow ? clip(right, length) : (int)right;
 		}
 		// Refined ends may extend beyond the retained alignment. Keep terminal
 		// insertions representable; interior anchors still come only from the trace.
+		if(freeEnds){
+			return clipToWindow ? CovarianceModelPlacementBands.window(model, length, targetLow, targetHigh, radius)
+				: CovarianceModelPlacementBands.windowUnclipped(model, length, targetLow, targetHigh, radius);
+		}
 		targetLow[0]=0;targetHigh[model.clen]=length;
 		return new CovarianceModelPlacementBands(model, length, targetLow, targetHigh, radius);
 	}

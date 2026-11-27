@@ -10,6 +10,7 @@ import structures.ByteBuilder;
 import structures.DoubleList;
 import structures.IntList;
 import structures.LongList;
+import structures.UnsignedFloat;
 
 /** Optional exact signed-error background for an existing positional geometry.
  * The borrowed table still owns the correction radius and in-window counts.
@@ -88,7 +89,10 @@ public final class NcrnaWeightedEndpointTable{
 	public static NcrnaWeightedEndpointTable loadScores(final String path, final String member){
 		final LineParser1 parser=new LineParser1('\t');
 		try(Input input=new Input(path)){
-			RrnaResourceIO.header(input.reader, "#NCRNA_SIGNED_BACKGROUND_SCORES_V1", path);
+			fields(parser, input.reader.nextLine(), 1);
+			final boolean compact=parser.termEquals("#NCRNA_SIGNED_BACKGROUND_ENRICHMENT_A48_V1", 0);
+			require(compact || parser.termEquals("#NCRNA_SIGNED_BACKGROUND_SCORES_V1", 0),
+				"Weighted endpoint input must declare the legacy dense scores or compact enrichment schema");
 			RrnaResourceIO.header(input.reader, "member\tend\tk\tradius_bp\tprobe_offset_bp\talpha_per_key\ttable_loci", path);
 			fields(parser, input.reader.nextLine(), 7);
 			require(member!=null && parser.termEquals(member, 0), "Signed scores must name the requested exact member");
@@ -136,6 +140,27 @@ public final class NcrnaWeightedEndpointTable{
 			for(int bin=0; bin<savedWeights.length; bin++){
 				final double expected=bin==anchor ? 0 : savedObserved[bin]/(double)incorrect;
 				require(savedWeights[bin]==expected, "Saved background weights must match Distribution.backgroundWeight's nonzero-conditioned counts");
+			}
+			if(compact){
+				fields(parser, row, 4);
+				require(parser.termEquals("enrichment_a48", 0) && parser.parseInt(1)==12 && parser.parseInt(2)==32,
+					"Compact enrichment V1 fixes unsigned6+6 precision and exponent bias32 before decoding any key");
+				final NcrnaEnrichmentEncoding encoding=new NcrnaEnrichmentEncoding(12, parser.parseInt(3));
+				RrnaResourceIO.header(input.reader, "dense_packed_keys", path);
+				final double[] scores=new double[table.space];
+				int keys=0;
+				for(row=input.reader.nextLine(); row!=null; row=input.reader.nextLine()){
+					require(row.length>0 && (row.length&1)==0 && row.length/2<=scores.length-keys,
+						"Dense A48 rows need complete two-symbol fields and cannot exceed the declared key space");
+					for(int from=0; from<row.length; from+=2){
+						scores[keys++]=encoding.scoreCode(encoding.format.read(row, from));
+					}
+				}
+				require(keys==table.space, "Dense compact enrichment must include every packed key; missing rows have no implicit evidence");
+				final NcrnaWeightedEndpointTable result=new NcrnaWeightedEndpointTable(table, offsets.toArray(), savedObserved,
+					savedWeights, valid.toArray(), clipped.toArray(), ambiguous.toArray(), anchor, scores);
+				result.enrichment=encoding;
+				return result;
 			}
 			fields(parser, row, 2);
 			require(parser.termEquals("kmer", 0) && parser.termEquals("log_score", 1), "Missing signed-score key header");
@@ -247,6 +272,82 @@ public final class NcrnaWeightedEndpointTable{
 		return scores[word];
 	}
 
+	/** Explicit changed-input experiment, configured once before sharing with workers.
+	 * Cache decoded float-log values now; inference lookup never exp/logs or allocates.
+	 * Counts stay exact so training can subtract a whole locus BEFORE quantization.
+	 */
+	public void encodeEnrichment(){
+		require(finished && counts!=null && enrichment==null,
+			"Compact training tables require finalized original counts and exactly one pre-worker quantization");
+		final UnsignedFloat format=UnsignedFloat.forBits(12);
+		enrichment=new NcrnaEnrichmentEncoding(12, format.encode(1));
+		for(int word=0; word<scores.length; word++){scores[word]=enrichment.score((float)scores[word]);}
+	}
+
+	/** Unsmoothed raw occurrences over this table's distinct counted offsets,
+	 * including its true anchor once. These are observed word/position events,
+	 * not distinct loci or weighted effective background counts. The caller owns
+	 * the new array; build once for offline evidence pruning, never per lookup.
+	 * Score-only resources cannot reconstruct this evidence.
+	 */
+	public long[] totalOccurrences(){
+		require(finished && counts!=null, "Raw occurrence totals require actual finalized training rows, never a saved score-only resource");
+		final long[] total=new long[geometry.space];
+		for(final long[] row:counts){
+			for(int word=0; word<total.length; word++){total[word]=Math.addExact(total[word], row[word]);}
+		}
+		return total;
+	}
+
+	/** Exposes observed count quantities for a compact producer, never inventing
+	 * counts from an inference resource. One owner prepares this view before
+	 * sharing it; its arrays borrow finalized data and must never be modified.
+	 * With D=anchorValid+prior and D_i the wrong-offset denominators, background
+	 * holds D*sum_i(weight_i*count_i/D_i), and backgroundPrior holds
+	 * D*sum_i(weight_i*alpha/D_i). Thus the mathematical score is
+	 * log((anchor+alpha)/(background+backgroundPrior)). This reassociation alone
+	 * does not claim old floating-point bit identity.
+	 */
+	public CountData countData(){
+		require(finished && counts!=null, "Observed endpoint counts require the real finalized training population, never a score-only file");
+		if(countData!=null){return countData;}
+		final double prior=geometry.alpha*geometry.space;
+		final double anchorDenominator=valid[anchor]+prior;
+		double backgroundPrior=0;
+		for(int bin=0; bin<offsets.length; bin++){
+			if(bin!=anchor){backgroundPrior+=weights[bin]*(geometry.alpha/(valid[bin]+prior));}
+		}
+		backgroundPrior*=anchorDenominator;
+		require(Double.isFinite(backgroundPrior) && backgroundPrior>0,
+			"Count-space wrong-offset smoothing must remain positive for omitted words");
+		final double[] background=new double[geometry.space];
+		for(int word=0; word<background.length; word++){
+			double observed=0;
+			for(int bin=0; bin<offsets.length; bin++){
+				if(bin!=anchor){observed+=weights[bin]*(counts[bin][word]/(valid[bin]+prior));}
+			}
+			background[word]=observed*anchorDenominator;
+			require(Double.isFinite(background[word]) && background[word]>=0,
+				"Positive observed offset counts and finite denominators must produce nonnegative effective background counts");
+		}
+		countData=new CountData(counts[anchor], background, backgroundPrior);
+		return countData;
+	}
+
+	/** Borrowed immutable-after-finish raw quantities, retaining fractional background. */
+	public static final class CountData{
+		private CountData(final long[] anchor_, final double[] background_, final double backgroundPrior_){
+			assert(anchor_.length==background_.length && backgroundPrior_>0)
+				: "Every packed endpoint word needs its true count and same-axis weighted background";
+			anchor=anchor_;
+			background=background_;
+			backgroundPrior=backgroundPrior_;
+		}
+		public final long[] anchor;
+		public final double[] background;
+		public final double backgroundPrior;
+	}
+
 	/** Correction width is unchanged even when background errors extend far away.
 	 * False means a clipped/ambiguous word; the incomplete output must not be used.
 	 * A computed nonfinite score is an error, never missing-word state.
@@ -272,7 +373,7 @@ public final class NcrnaWeightedEndpointTable{
 		require(finished, "Write weighted scores only after all counted offsets have been validated");
 		try(Output output=new Output(path)){
 			final ByteBuilder buffer=new ByteBuilder();
-			output.writer.println("#NCRNA_SIGNED_BACKGROUND_SCORES_V1");
+			output.writer.println(enrichment==null ? "#NCRNA_SIGNED_BACKGROUND_SCORES_V1" : "#NCRNA_SIGNED_BACKGROUND_ENRICHMENT_A48_V1");
 			output.writer.println("member\tend\tk\tradius_bp\tprobe_offset_bp\talpha_per_key\ttable_loci");
 			output.writer.print(buffer.append(geometry.model).tab().append(geometry.end).tab().append(geometry.k)
 				.tab().append(geometry.radius).tab().append(geometry.offset).tab().append(Double.toString(geometry.alpha)).tab().append(records).nl());
@@ -280,6 +381,20 @@ public final class NcrnaWeightedEndpointTable{
 			for(int bin=0; bin<offsets.length; bin++){
 				output.writer.print(buffer.clear().append('#').append(offsets[bin]).tab().append(observed[bin])
 					.tab().append(Double.toString(weights[bin])).tab().append(valid[bin]).tab().append(clipped[bin]).tab().append(ambiguous[bin]).nl());
+			}
+			if(enrichment!=null){
+				output.writer.print(buffer.clear().append("enrichment_a48\t12\t32\t").append(enrichment.defaultCode).nl());
+				output.writer.println("dense_packed_keys");
+				buffer.clear();
+				for(int word=0; word<scores.length; word++){
+					enrichment.format.append(buffer, enrichment.fileCode((float)scores[word]));
+					if(buffer.length()>=2048){
+						output.writer.print(buffer.nl());
+						buffer.clear();
+					}
+				}
+				if(buffer.length()>0){output.writer.print(buffer.nl());}
+				return;
 			}
 			output.writer.println("kmer\tlog_score");
 			for(int word=0; word<scores.length; word++){
@@ -316,6 +431,11 @@ public final class NcrnaWeightedEndpointTable{
 			require(ready && word>=0 && word<geometry.space, "Bind a counted locus before weighted leave-one-out key lookup");
 			return computeScore(word, own, remaining);
 		}
+		/** Shared training conversion follows exact whole-locus subtraction, not before it. */
+		public float neuralScoreKey(final int word){
+			final float value=(float)scoreKey(word);
+			return enrichment==null ? value : enrichment.score(value);
+		}
 		private final int[] own;
 		private final double[] remaining;
 		private boolean ready;
@@ -339,4 +459,7 @@ public final class NcrnaWeightedEndpointTable{
 	private long records;
 	private double[] scores;
 	private boolean finished;
+	private CountData countData;
+	/** Set only before worker creation; loaded compact tables already contain decoded inputs. */
+	private NcrnaEnrichmentEncoding enrichment;
 }

@@ -66,6 +66,10 @@ public final class BuildNcrnaPositionalInputs{
 				loci=b;
 			}else if(a.equals("exclude")){
 				exclude=b;
+			}else if(a.equals("teachingroutes")){
+				teachingRoutes=b;
+			}else if(a.equals("teachingmodels")){
+				teachingModels=b;
 			}else if(a.equals("refit")){
 				refit=Parse.parseBoolean(b);
 			}else if(a.equals("histogram")){
@@ -99,6 +103,8 @@ public final class BuildNcrnaPositionalInputs{
 				interchange=Parse.parseBoolean(b);
 			}else if(a.equals("fullerrors")){
 				fullErrors=Parse.parseBoolean(b);
+			}else if(a.equals("enrichmentbits")){
+				enrichmentBits=NcrnaNumbers.intValue(a, b);
 			}else if(a.equals("prior")){
 				prior=Double.parseDouble(b);
 			}else if(a.equals("tripletables")){
@@ -126,8 +132,11 @@ public final class BuildNcrnaPositionalInputs{
 		}
 		final int fiveK=NcrnaPositionalTables.wordLength(startInside, startOutside);
 		final int threeK=NcrnaPositionalTables.wordLength(stopInside, stopOutside);
-		if(tripleTables && (fiveK!=9 || threeK!=9)){
-			throw new IllegalArgumentException("tripletables=t requires K9 at both ends; it adds training LOO and HBM coverage features");
+		if(tripleTables && (fiveK<7 || fiveK!=threeK)){
+			throw new IllegalArgumentException("tripletables=t requires equal K7..9 at both ends; it adds training LOO and HBM coverage features");
+		}
+		if(enrichmentBits!=0 && (enrichmentBits!=12 || !fullErrors)){
+			throw new IllegalArgumentException("enrichmentbits=12 requires fullerrors=t; omission preserves exact legacy float-log inputs");
 		}
 		if(interchange && (!tripleTables || radii.length!=1 || radii[0]!=10
 				|| !refit && (exclude==null || evaluationSeed<0 || evaluationSeed==trainSeed || evaluationSeed==monitorSeed))){
@@ -156,12 +165,15 @@ public final class BuildNcrnaPositionalInputs{
 			}
 		}
 		entry=NcrnaFamilyRegistry.get(family);
+		if((teachingRoutes==null)!=(teachingModels==null) || teachingRoutes!=null && (!fullErrors || !interchange || refit)){
+			throw new IllegalArgumentException("Restricted teaching requires both teachingroutes/teachingmodels with split-trained full-error interchange");
+		}
 		// Ungrouped registrations use an empty member; their stable ID names the table.
 		member=entry.group==null ? entry.id : entry.member;
 		root=new File(out).getAbsoluteFile();
 		if(root.exists() || root.getParentFile()==null || !root.getParentFile().isDirectory() || !new File(familyRoot).isDirectory()
 				|| !Tools.testInputFiles(false, true, in, ref, hbm, seeds, original, graph, roster, loci, histogram, exclude,
-					evaluationRows5, evaluationRows3, modelOffsets)){
+					evaluationRows5, evaluationRows3, modelOffsets, teachingRoutes, teachingModels)){
 			throw new IllegalArgumentException("All inputs must be readable; out must be absent beneath an existing parent and familyroot must be a directory");
 		}
 	}
@@ -185,6 +197,9 @@ public final class BuildNcrnaPositionalInputs{
 		final NcrnaFamily accepted=NcrnaFamilyLoader.load(family, options, resolver);
 		final NcrnaLearningPopulation population=NcrnaLearningPopulation.loadForRefit(NcrnaSupportIO.read(graph),
 			NcrnaSupport.loadLibrary(original).names, roster, loci, exclude);
+		if(teachingRoutes!=null){
+			population.restrictTeaching(NcrnaModelRoutes.load(teachingRoutes, member, accepted.modelNames), teachingModels, accepted.modelNames);
+		}
 		final NcrnaFixedEndpointTrials fixed=modelOffsets==null ? null : NcrnaFixedEndpointTrials.load(population,
 			accepted, member, evaluationRows5, evaluationRows3, modelOffsets, offsetMinimum, samples, evaluationCounts);
 		final NcrnaSignedEndpointErrors errors=fullErrors ? NcrnaSignedEndpointErrors.load(histogram, member) : null;
@@ -210,8 +225,13 @@ public final class BuildNcrnaPositionalInputs{
 		for(int r=0; r<radii.length; r++){
 			if(fullErrors){
 				for(int probe=0; probe<3; probe++){
-					tables.fiveWeighted[r][probe].writeScores(path("r"+radii[r]+".5prime.probe"+probe+".weighted.tsv"));
-					tables.threeWeighted[r][probe].writeScores(path("r"+radii[r]+".3prime.probe"+probe+".weighted.tsv"));
+					if(enrichmentBits!=0){
+						tables.fiveWeighted[r][probe].encodeEnrichment();
+						tables.threeWeighted[r][probe].encodeEnrichment();
+					}
+					final String suffix=enrichmentBits==0 ? ".weighted.tsv" : ".weighted.tsv.gz";
+					tables.fiveWeighted[r][probe].writeScores(path("r"+radii[r]+".5prime.probe"+probe+suffix));
+					tables.threeWeighted[r][probe].writeScores(path("r"+radii[r]+".3prime.probe"+probe+suffix));
 				}
 				continue;
 			}
@@ -225,6 +245,7 @@ public final class BuildNcrnaPositionalInputs{
 				}
 			}
 		}
+		if(enrichmentBits!=0){writeTableSizes(tables);}
 		final NcrnaPositionalVectors vectors=refit
 			? NcrnaPositionalVectors.writeRefit(population, in, accepted, tables, samples, trainSeed, monitorSeed, workers, root)
 			: interchange
@@ -244,6 +265,24 @@ public final class BuildNcrnaPositionalInputs{
 		}
 	}
 
+	/** Closed compressed table bytes are available before expensive vector generation. */
+	private void writeTableSizes(final NcrnaPositionalTables tables){
+		assert(tables.fullErrors!=null && enrichmentBits==12) : "Compact size rows describe finalized weighted 6+6 tables, never a projection";
+		try(Output output=new Output(path("tables.bytes.tsv"))){
+			final ByteBuilder row=new ByteBuilder();
+			output.writer.println("member\tk\tend\tprobe\tfile\tstored_bytes");
+			for(int end=0; end<2; end++){
+				for(int probe=0; probe<3; probe++){
+					final String name="r10."+(end==0 ? "5prime" : "3prime")+".probe"+probe+".weighted.tsv.gz";
+					final long bytes=new File(path(name)).length();
+					if(bytes<=0){throw new IllegalStateException("Closed compact table is absent or empty: "+name);}
+					output.writer.print(row.clear().append(member).tab().append(tables.five[0].k).tab()
+						.append(end==0 ? "5prime" : "3prime").tab().append(probe).tab().append(name).tab().append(bytes).nl());
+				}
+			}
+		}
+	}
+
 	private String path(final String name){return new File(root, name).getPath();}
 
 	/*--------------------------------------------------------------*/
@@ -254,6 +293,7 @@ public final class BuildNcrnaPositionalInputs{
 	private boolean refit;
 	/** Optional frozen outer sidecars and supported offsets; absence preserves the original draw path. */
 	private String evaluationRows5, evaluationRows3, modelOffsets;
+	private String teachingRoutes, teachingModels;
 	private long[] evaluationCounts;
 	private int offsetMinimum=-1;
 	private String member;
@@ -272,4 +312,6 @@ public final class BuildNcrnaPositionalInputs{
 	private boolean interchange;
 	/** Opt-in full signed draws, weighted background and an explicit 22nd target. */
 	private boolean fullErrors;
+	/** Explicit changed-input experiment; zero retains the legacy table/vector path. */
+	private int enrichmentBits;
 }

@@ -24,6 +24,16 @@ abstract class PFeature extends ProkObject implements Comparable<PFeature>, Feat
 		strand=strand_;
 		scaflen=scaflen_;
 	}
+
+	/** Restores current coordinates and their saved orientation without another flip. */
+	protected PFeature(final String scafName_, final int start_, final int stop_,
+			final int strand_, final int scaflen_, final int flipped_){
+		this(scafName_, start_, stop_, strand_, scaflen_);
+		if(flipped_<0 || flipped_>1){
+			throw new IllegalArgumentException("Saved flip parity must be 0 or 1 for coordinate restoration: "+flipped_);
+		}
+		flipped=flipped_;
+	}
 	
 	/*--------------------------------------------------------------*/
 	/*----------------           Methods            ----------------*/

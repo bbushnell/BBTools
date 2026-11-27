@@ -13,6 +13,8 @@ import java.util.Set;
 
 import fileIO.ByteFile;
 import fileIO.FileFormat;
+import structures.IntList;
+import structures.LongList;
 
 /** Coordinate-based, family-aware, one-to-one 6S (RF00013/RF01685) GFF grader.
  *
@@ -180,44 +182,9 @@ public class NcrnaGffFamilyGrader {
 	 * Positive length requires caller-validated circular topology and intervals no longer
 	 * than one circumference. Original list indices and one-to-one ownership are retained. */
 	static MatchResult matchOneToOne(List<Locus> calls, List<Locus> truth, float minOverlapFrac, int circularLength){
-		if(circularLength<0){throw new IllegalArgumentException("Circular circumference must be positive, or zero for linear matching");}
-		final int nc=calls.size(), nt=truth.size();
-		final MatchResult mr=new MatchResult(nc, nt);
-
-		@SuppressWarnings("unchecked")
-		final ArrayList<int[]>[] adj=new ArrayList[nc];
-		final boolean[] callHasAnyEdge=new boolean[nc];
-		for(int ci=0; ci<nc; ci++){
-			final Locus c=calls.get(ci);
-			final ArrayList<int[]> edges=new ArrayList<>();
-			for(int ti=0; ti<nt; ti++){
-				final Locus t=truth.get(ti);
-				if(!c.seqid.equals(t.seqid) || c.strand!=t.strand){continue;}
-				final int overlap=circularLength==0 ? Math.min(c.stop, t.stop)-Math.max(c.start, t.start)+1
-					: circularOverlap(c, t, circularLength);
-				if(overlap<=0){continue;}
-				if(overlap>=minOverlapFrac*c.length() && overlap>=minOverlapFrac*t.length()){
-					edges.add(new int[]{ti, overlap});
-					callHasAnyEdge[ci]=true;
-				}
-			}
-			edges.sort((x, y)->Integer.compare(y[1], x[1]));//overlap descending, comparator-safe
-			adj[ci]=edges;
-		}
-
-		for(int ci=0; ci<nc; ci++){
-			final boolean[] visited=new boolean[nt];
-			if(tryAugment(ci, adj, visited, mr.truthMatchedCallIdx, mr.callMatchedTruthIdx)){mr.matched++;}
-		}
-
-		for(int ci=0; ci<nc; ci++){
-			if(mr.callMatchedTruthIdx[ci]>=0){mr.callConsumed[ci]=true;}
-			else if(callHasAnyEdge[ci]){mr.callIsDuplicate[ci]=true;}
-		}
-		for(int ti=0; ti<nt; ti++){
-			if(mr.truthMatchedCallIdx[ti]>=0){mr.truthConsumed[ti]=true;}
-		}
-		return mr;
+		final PreparedMatcher matcher=new PreparedMatcher(calls, truth, minOverlapFrac, circularLength);
+		matcher.matchAll();
+		return matcher.copyResult();
 	}
 
 	/** Add detection-only matches for explicitly partial references, preserving every
@@ -267,17 +234,22 @@ public class NcrnaGffFamilyGrader {
 		return result;
 	}
 
-	/** Sum physical overlap across adjacent unrolled copies, without duplicating a locus.
-	 * Each interval covers at most one turn, so the sum cannot exceed either length. */
-	public static int circularOverlap(Locus c, Locus t, int length){
-		if(length<=0 || c.start>length || t.start>length || c.length()>length || t.length()>length){
-			throw new IllegalArgumentException("Circular loci must start within one positive circumference and span at most one turn");
+	/** Sum physical overlap without changing original GFF coordinates or row indices.
+	 * Explicitly circular intervals may start on any positive unrolled turn, but each
+	 * spans at most one circumference. Translate local operands before intersecting
+	 * adjacent copies so each physical base is counted at most once. */
+	public static int circularOverlap(final Locus c, final Locus t, final int length){
+		if(length<=0 || c.length()>length || t.length()>length){
+			throw new IllegalArgumentException("Circular loci need a positive circumference and must span at most one turn: length="
+				+length+" call="+c.start+".."+c.stop+" truth="+t.start+".."+t.stop);
 		}
 		if(c.stop<=length && t.stop<=length){return Math.max(0, Math.min(c.stop,t.stop)-Math.max(c.start,t.start)+1);}
+		final long cs=(c.start-1)%length+1L, ts=(t.start-1)%length+1L;
+		final long ce=cs+c.length()-1L, te=ts+t.length()-1L;
 		long overlap=0;
 		for(int turn=-1; turn<=1; turn++){
 			final long shift=(long)turn*length;
-			overlap+=Math.max(0L, Math.min((long)c.stop, t.stop+shift)-Math.max((long)c.start, t.start+shift)+1L);
+			overlap+=Math.max(0L, Math.min(ce, te+shift)-Math.max(cs, ts+shift)+1L);
 		}
 		assert(overlap<=c.length() && overlap<=t.length()):"One-turn circular overlap cannot count a physical base twice";
 		return (int)overlap;
@@ -300,6 +272,144 @@ public class NcrnaGffFamilyGrader {
 			}
 		}
 		return false;
+	}
+
+	/** Fixed overlap edges with reusable maximum-cardinality matching state.
+	 * Constructor inputs are borrowed only while edges are prepared. Call order,
+	 * descending overlap and original truth order on ties match matchOneToOne.
+	 * The core deliberately ignores family labels; callers own family/input scopes.
+	 * One instance belongs to one thread. Query methods describe the last completed
+	 * match only; the next match invalidates that borrowed result. No loci, edge
+	 * objects or per-query visited arrays are allocated during repeated matches.
+	 */
+	public static final class PreparedMatcher{
+		public PreparedMatcher(final List<Locus> candidates, final List<Locus> truth,
+				final float minimumOverlap, final int circularLength){
+			if(candidates==null || truth==null || circularLength<0){
+				throw new IllegalArgumentException("Prepared matching needs fixed locus lists and nonnegative circular length");
+			}
+			final int nc=candidates.size(), nt=truth.size();
+			offsets=new int[Math.addExact(nc, 1)];
+			final IntList adjacency=new IntList();
+			final LongList row=new LongList();
+			for(int ci=0; ci<nc; ci++){
+				offsets[ci]=adjacency.size;
+				row.clear();
+				final Locus call=candidates.get(ci);
+				for(int ti=0; ti<nt; ti++){
+					final Locus reference=truth.get(ti);
+					if(!call.seqid.equals(reference.seqid) || call.strand!=reference.strand){continue;}
+					final int overlap=circularLength==0 ? Math.min(call.stop, reference.stop)-Math.max(call.start, reference.start)+1
+						: circularOverlap(call, reference, circularLength);
+					if(overlap>0 && overlap>=minimumOverlap*call.length() && overlap>=minimumOverlap*reference.length()){
+						// Nonnegative keys sort overlap descending, then original truth index ascending.
+						row.add(((long)(Integer.MAX_VALUE-overlap)<<32)|ti);
+					}
+				}
+				Arrays.sort(row.array, 0, row.size);
+				for(int i=0; i<row.size; i++){adjacency.add((int)row.get(i));}
+			}
+			offsets[nc]=adjacency.size;
+			edges=adjacency.toArray();
+			positions=new int[nc];
+			Arrays.fill(positions, -1);
+			callToTruth=new int[nc];
+			truthToCall=new int[nt];
+			visited=new int[nt];
+			selected=new IntList(nc);
+		}
+
+		/** Uses all prepared candidates in their original list order. */
+		public int matchAll(){
+			begin();
+			for(int i=0; i<positions.length; i++){activate(i);}
+			return finish();
+		}
+		/** Copies only the selected candidate indices into a reused primitive list.
+		 * Indices must be distinct and retain the desired native query order.
+		 */
+		public int match(final IntList order){
+			if(order==null){throw new IllegalArgumentException("A prepared trial requires an explicit selected-candidate order");}
+			begin();
+			for(int i=0; i<order.size; i++){activate(order.get(i));}
+			return finish();
+		}
+		private void begin(){
+			ready=false;
+			for(int i=0; i<selected.size; i++){positions[selected.get(i)]=-1;}
+			selected.clear();
+			Arrays.fill(truthToCall, -1);
+			matched=0;
+		}
+		private void activate(final int candidate){
+			if(candidate<0 || candidate>=positions.length || positions[candidate]>=0){
+				throw new IllegalArgumentException("Selected candidate must be unique and inside the prepared pool: "+candidate);
+			}
+			positions[candidate]=selected.size;
+			selected.add(candidate);
+			callToTruth[candidate]=-1;
+		}
+		private int finish(){
+			assert(selected.size<=positions.length) : "Unique active indices cannot exceed the prepared candidate pool";
+			for(int i=0; i<selected.size; i++){
+				if(stamp==Integer.MAX_VALUE){Arrays.fill(visited, 0); stamp=0;}
+				stamp++;
+				if(augment(selected.get(i))){matched++;}
+			}
+			ready=true;
+			return matched;
+		}
+		private boolean augment(final int candidate){
+			assert(candidate>=0 && candidate<positions.length && positions[candidate]>=0)
+				: "Only active selected candidates can own or reroute a reference: "+candidate;
+			for(int i=offsets[candidate]; i<offsets[candidate+1]; i++){
+				final int reference=edges[i];
+				if(visited[reference]==stamp){continue;}
+				visited[reference]=stamp;
+				if(truthToCall[reference]<0 || augment(truthToCall[reference])){
+					truthToCall[reference]=candidate;
+					callToTruth[candidate]=reference;
+					return true;
+				}
+			}
+			return false;
+		}
+		/** Original reference index paired to this trial's query ordinal, or -1. */
+		public int matchedReference(final int call){
+			if(!ready || call<0 || call>=selected.size){throw new IllegalArgumentException("Query ordinal needs a completed prepared match: "+call);}
+			return callToTruth[selected.get(call)];
+		}
+		/** Trial query ordinal paired to this original reference index, or -1. */
+		public int matchedCall(final int reference){
+			if(!ready || reference<0 || reference>=truthToCall.length){throw new IllegalArgumentException("Reference index needs a completed prepared match: "+reference);}
+			final int candidate=truthToCall[reference];
+			return candidate<0 ? -1 : positions[candidate];
+		}
+		/** Core duplicate flag: an unmatched query with at least one eligible edge. */
+		public boolean duplicateCall(final int call){
+			final int reference=matchedReference(call), candidate=selected.get(call);
+			return reference<0 && offsets[candidate]<offsets[candidate+1];
+		}
+		/** Existing entry points return independent, exact-sized owned arrays. */
+		private MatchResult copyResult(){
+			if(!ready){throw new IllegalStateException("An owned result requires a completed prepared match");}
+			final MatchResult result=new MatchResult(selected.size, truthToCall.length);
+			result.matched=matched;
+			for(int i=0; i<selected.size; i++){
+				result.callMatchedTruthIdx[i]=matchedReference(i);
+				result.callConsumed[i]=result.callMatchedTruthIdx[i]>=0;
+				result.callIsDuplicate[i]=duplicateCall(i);
+			}
+			for(int i=0; i<truthToCall.length; i++){
+				result.truthMatchedCallIdx[i]=matchedCall(i);
+				result.truthConsumed[i]=result.truthMatchedCallIdx[i]>=0;
+			}
+			return result;
+		}
+		private final int[] offsets, edges, positions, callToTruth, truthToCall, visited;
+		private final IntList selected;
+		private int matched, stamp;
+		private boolean ready;
 	}
 
 	public static final class MatchResult {

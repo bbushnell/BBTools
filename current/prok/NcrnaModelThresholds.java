@@ -15,6 +15,13 @@ public final class NcrnaModelThresholds {
 	public NcrnaModelThresholds(String[] names_,float[] pass_,float[] borderline_){
 		this(names_,pass_,borderline_,null,null);
 	}
+	/** Cold, validated binding for a combined walk whose models retain their
+	 * original member's identity and inclusive length limits. Arrays are copied. */
+	public static NcrnaModelThresholds forModels(final String[] names, final float[] pass,
+			final float[] borderline, final int[] minimum, final int[] maximum){
+		require(minimum!=null && maximum!=null, "Combined model verification requires explicit member length bounds");
+		return new NcrnaModelThresholds(names, pass, borderline, minimum, maximum);
+	}
 	private NcrnaModelThresholds(String[] names_,float[] pass_,float[] borderline_,int[] minimum_,int[] maximum_){
 		require(names_!=null && pass_!=null && borderline_!=null && names_.length>0 && names_.length==pass_.length && names_.length==borderline_.length,"Each model requires both identity cutoffs");
 		names=names_.clone();pass=pass_.clone();borderline=borderline_.clone();final map.ObjectSet<String> seen=new map.ObjectSet<String>(String.class);

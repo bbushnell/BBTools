@@ -59,7 +59,7 @@ import structures.ListNum;
  * kmers shared between rare and common tRNAs rather than random sequence that
  * happens to be common among the rare stragglers.
  *
-	 * @author Neptune, Brian, Ganyu, Raiden
+	 * @author Neptune, Brian, Ganyu, Raiden, Diona
  */
 public class CoveringSet {
 
@@ -339,6 +339,10 @@ public class CoveringSet {
 				kDesign=Integer.parseInt(b);
 			}else if(a.equals("seedset")){
 				seedSetPath=b;
+			}else if(a.equals("seedextension")){
+				if("original".equalsIgnoreCase(b)){originalSeedExtension=true;}
+				else if("greedy".equalsIgnoreCase(b)){originalSeedExtension=false;}
+				else{throw new IllegalArgumentException("seedextension must be greedy or original");}
 			}else if(a.equals("coveragek")){
 				coverageK=Integer.parseInt(b);
 			}else if(a.equals("targetremaining")){
@@ -467,6 +471,10 @@ public class CoveringSet {
 		}
 		if(targetRemaining && seedSetPath==null){throw new IllegalArgumentException("targetremaining requires seedset to define the fixed initial remainder");}
 		if(!Double.isFinite(targetDouble) || targetDouble<0 || targetDouble>1){throw new IllegalArgumentException("target must be in [0,1]");}
+		if(originalSeedExtension && (proteinMode || seedSetPath==null || kDesign!=k || coverageK!=k
+				|| minCount!=1 || minInitial!=0 || targetDouble!=1)){
+			throw new IllegalArgumentException("seedextension=original requires nucleotide seedset, kdesign=coveragek=k, mincount=1, mininitial=0 and target=1");
+		}
 		if((outDesign!=null && outDesign.equals(out)) || (summary!=null && (summary.equals(out) || summary.equals(outDesign)))){
 			throw new IllegalArgumentException("out, outdesign and summary must be separate files");
 		}
@@ -568,7 +576,14 @@ public class CoveringSet {
 		int currentStep=step;
 		long exemptions=0, singletonExemptions=0;
 
-		while(aliveCount>0){
+		if(originalSeedExtension){
+			extendByOriginal(pool, alive, originalCounts, selectedSet, selectedKmers, designMask);
+			round=selectedKmers.size-initialKeys;
+			aliveCount-=evictCoveredMT(pool, alive, coverageSet, coverageK, coverageMask);
+			outstream.println("Original-count extension: input-order genes, all distinct candidate keys, descending original occurrences, ascending encoded-key ties; one round per added key");
+		}
+
+		while(!originalSeedExtension && aliveCount>0){
 			if(maxKmers>0 && selectedKmers.size>=maxKmers){break;}
 			float covFrac=1f-(aliveCount/(float)coverageDenominator);
 			if(targetRemaining ? remainderTargetMet(aliveCount,initialRemaining,targetDouble) : covFrac>=minCovFraction){break;}
@@ -679,6 +694,58 @@ public class CoveringSet {
 		outstream.println("Time:   "+t);
 		if(errorState){
 			throw new RuntimeException(getClass().getName()+" terminated in an error state.");
+		}
+	}
+
+	/** Extend a fixed seed prefix without residual-count shortlisting or batch
+	 * overfill. Original counts include every occurrence in the complete pool,
+	 * including copies already covered by the fixed prefix. Choices for an earlier
+	 * input gene immediately contribute to every later gene's distinct-hit count. */
+	private void extendByOriginal(final ArrayList<byte[]> pool, final boolean[] alive,
+			final PartitionedCounter originalCounts, final LongHashSet selected,
+			final LongList ordered, final long mask){
+		assert(kDesign==k && coverageK==k && seedSetPath!=null && minCount==1 && minInitial==0)
+			: "Original-count extension uses fixed seeds and identical selection/coverage words";
+		final LongHashSet words=new LongHashSet(256);
+		for(int gene=0; gene<pool.size(); gene++){
+			if(!alive[gene]){continue;}
+			if(maxKmers>0 && ordered.size>=maxKmers){break;}
+			words.clear();
+			long word=0;
+			int valid=0;
+			for(byte base:pool.get(gene)){
+				final int code=AminoAcid.baseToNumber[base&255];
+				if(code<0){
+					word=0;
+					valid=0;
+					continue;
+				}
+				word=((word<<2)|code)&mask;
+				if(++valid>=k){
+					final long key=rcomp ? Tools.max(word, AminoAcid.reverseComplementBinaryFast(word, k)) : word;
+					if(!avoidedDesignWord(key)){words.add(key);}
+				}
+			}
+			final long[] candidates=words.toArray();
+			int hits=0;
+			for(long key:candidates){
+				if(selected.contains(key)){hits++;}
+			}
+			if(hits>=minHits){continue;}
+			final int missing=minHits-hits;
+			final int limit=maxKmers>0 ? Tools.min(missing, maxKmers-ordered.size) : missing;
+			final TopKHeap best=new TopKHeap(Tools.min(limit, candidates.length));
+			for(long key:candidates){
+				if(selected.contains(key)){continue;}
+				final int count=originalCounts.get(key);
+				if(count<1){throw new IllegalStateException("A gene's candidate key must have a positive original occurrence count");}
+				best.add(key, count, key);
+			}
+			for(long key:best.keysDescending()){
+				final boolean added=selected.add(key);
+				assert(added) : "Distinct per-gene candidates exclude all existing selections";
+				ordered.add(key);
+			}
 		}
 	}
 
@@ -1852,6 +1919,8 @@ public class CoveringSet {
 	private String seedSetPath,outDesign;
 	private int coverageK=-1;
 	private boolean targetRemaining=false;
+	/** Opt-in per-gene continuation ranked over the complete immutable original pool. */
+	private boolean originalSeedExtension=false;
 	private double targetDouble=0.999;
 	private String alphabetSpec;
 	private String keySpec;

@@ -448,6 +448,7 @@ public final class NcrnaPositionalVectors{
 		private void processRead(final Read read){
 			context.set(read, owner.population);
 			final int gene=context.gene;
+			owner.population.checkTeachingContext(gene, context.status);
 			genes.add(gene);
 			if(context.status!=owner.tables.statusByGene[gene]){throw new IllegalArgumentException("Context availability changed between table/vector passes: "+read.id);}
 			final int model;
@@ -481,14 +482,16 @@ public final class NcrnaPositionalVectors{
 				}
 			}else if(!owner.population.eligible(gene)){
 				filtered++;
-				model=-1;
-				disposition=owner.interchange && owner.population.partial[gene] ? "PARTIAL_ORIGINAL" : "FILTERED_ORIGINAL";
+				model=owner.population.restrictedTeaching() ? owner.population.teachingModel(gene) : -1;
+				disposition=owner.interchange && owner.population.partial[gene] ? "PARTIAL_ORIGINAL"
+					: owner.population.restrictedTeaching() ? model>=0 ? "CM_ROUTED_ORIGINAL" : "ROUTING_UNAVAILABLE_OR_NO_MODEL" : "FILTERED_ORIGINAL";
 			}else if(!context.hasFeatures()){
 				unavailable++;
 				model=-1;
 				disposition="UNAVAILABLE_CONTEXT";
 			}else{
 				model=selectModel();
+				owner.population.checkTeachingModel(gene, model);
 				if(model<0){
 					noModel++;
 					disposition="NO_SHORTLISTED_MODEL";

@@ -1,6 +1,8 @@
 package prok;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Locale;
 
 import map.ObjectMap;
@@ -21,6 +23,10 @@ import structures.ByteBuilder;
  * parsers/builders. Accepts completed canonical grades or the historical
  * CobalaminPanelGrade FULL_CM/union view. No calling, rematching, truth editing
  * or biological subtype inference occurs. Emitted members partition union calls.
+ * Explicit inexact mode exports the grader's recorded overlap matches without
+ * assigning them again; default canonical and historical exports stay strict.
+ * Optional mode=members summarizes disjoint canonical overlap grades with
+ * separate emitted-query and representative-reference member axes.
  *
  * Retains only selected query/reference rows and one counter record per input,
  * including zero-call inputs. Coordinates come from actual reference rows;
@@ -28,6 +34,7 @@ import structures.ByteBuilder;
  * clan and emitted-member views for NcrnaEndpointSummary; do not sum those views.
  * Each instance, its parsers and stream owners are confined to one thread.
  * @author Raiden
+ * @author Diona
  */
 public final class ExportCobalaminBenchmarkGrade{
 
@@ -48,22 +55,63 @@ public final class ExportCobalaminBenchmarkGrade{
 			final String[] split=Parse.splitOnFirst(arg, '=');
 			final String a=split[0].toLowerCase(Locale.ROOT), b=split.length>1 ? split[1] : null;
 			if(a.equals("legacy")){legacy=Parse.parseBoolean(b);}
+			else if(a.equals("inexact")){inexact=Parse.parseBoolean(b);}
+			else if(a.equals("mode")){
+				require("export".equals(b) || "members".equals(b), "mode must be export or members");
+				memberMode="members".equals(b);
+			}
+			//TODO: Probable bug - canonical export accepts panel= but never applies
+			// it; only readLegacyReferences consumes this field. Reject or implement
+			// canonical subsets before allowing this option to select a population.
 			else if(a.equals("panel")){panel=b;}
 			else if(a.equals("timing")){timing=b;}
 			else if(a.equals("callerlog")){callerLog=b;}
+			else if(a.equals("ref")){modelFiles=b.split(",", -1);}
+			else if(a.equals("expectedmodels")){modelCounts=Parse.parseIntArray(b, ",");}
+			else if(a.equals("expectedinputs")){expectedInputs=Parse.parseIntKMG(b);}
 			else{require(parser.parse(arg, a, b), "Unknown benchmark-export parameter: "+arg);}
 		}
 		prefix=parser.in1;
 		out=parser.out1;
 		require(prefix!=null && out!=null && (!legacy || panel!=null), "Supply in=completed_grade_prefix out=fresh_prefix; legacy=t also requires panel=original_panel.loci.tsv");
+		require(!legacy || !inexact, "inexact=t requires a canonical overlap grade; legacy grades retain their recorded matching");
 		require((timing==null)==(callerLog==null), "Optional timing=GNU_time_triple and callerlog=complete_caller_stderr must be supplied together");
 		require(!parser.overwrite && !parser.append && parser.in2==null && parser.out2==null
 			&& parser.maxReads<0 && parser.samplerate==1, "Export complete grades to fresh outputs without sampling or append");
-		require(Tools.testInputFiles(false, true, prefix+".summary.tsv", prefix+(legacy ? ".calls.tsv" : ".raw.tsv"),
+		Shared.setThreads(1);
+		if(memberMode){
+			require(inexact && !legacy && panel==null && timing==null && callerLog==null
+				&& modelFiles==null && modelCounts==null && expectedInputs<0,
+				"mode=members requires canonical inexact=t grades and no legacy, timing or model-roster options");
+			memberPrefixes=prefix.split(",", -1);
+			for(final String part:memberPrefixes){
+				require(!part.isEmpty() && Tools.testInputFiles(false, true, part+".inputs.tsv",
+					part+".overlap.raw.tsv", part+".overlap.summary.tsv"), "Member-summary partitions require complete overlap grades");
+			}
+			RrnaResourceIO.fresh(out, ".member_outcomes.tsv");
+			return;
+		}
+		require(Tools.testInputFiles(false, true, prefix+(inexact ? ".overlap.summary.tsv" : ".summary.tsv"),
+			prefix+(legacy ? ".calls.tsv" : inexact ? ".overlap.raw.tsv" : ".raw.tsv"),
 			prefix+(legacy ? ".genomes.tsv" : ".inputs.tsv")), "Completed grade reports must be readable");
 		require(Tools.testOutputFiles(false, false, false, out+".members.tsv", out+".genomes.tsv", out+".matches.tsv",
 			out+".witnesses.tsv", out+".queries.tsv", out+".references.tsv", out+".metrics.tsv"), "Benchmark exports must be fresh");
-		Shared.setThreads(1);
+		if(modelFiles!=null || modelCounts!=null || expectedInputs>=0){
+			require(modelFiles!=null && modelFiles.length==3 && modelCounts!=null && modelCounts.length==3
+				&& expectedInputs>0 && !legacy, "Model-win reporting requires three ordered ref=FASTAs, expectedmodels=MAIN,SECOND,THIRD and expectedinputs=N on a canonical grade");
+			for(final int count:modelCounts){require(count>0, "Every model-win roster must have its positive complete model count");}
+			require(Tools.testInputFiles(false, true, modelFiles), "Complete model-win rosters must be readable and distinct");
+			RrnaResourceIO.fresh(out, ".model_wins.tsv", ".model_win_summary.tsv");
+		}
+	}
+
+	/** One partition at a time reuses the ordinary reader and summary checks.
+	 * The argument constructor validates all inputs and the fresh output path. */
+	private ExportCobalaminBenchmarkGrade(final String partition){
+		assert(partition!=null && !partition.isEmpty()) : "A member summary must retain its original grade prefix";
+		prefix=partition;
+		inexact=true;
+		memberMode=true;
 	}
 
 	/*--------------------------------------------------------------*/
@@ -71,12 +119,186 @@ public final class ExportCobalaminBenchmarkGrade{
 	/*--------------------------------------------------------------*/
 
 	private void process(){
+		if(memberMode){
+			summarizeMembers();
+			return;
+		}
 		readInputs();
 		if(legacy){readLegacyReferences();}
 		readRows();
 		checkSummary();
 		if(timing!=null){readMeasurements();}
+		if(modelFiles!=null){countModelWins();}
 		write();
+		if(modelFiles!=null){writeModelWins();}
+	}
+
+	/** Aggregates disjoint saved partitions, never a new biological match. Local
+	 * feature line numbers may repeat; original input IDs may not.
+	 * Counters are [axis][member][slot]: QUERY axis0 slots0..3 are TP,
+	 * TP_INEXACT, MASKED, FP; REFERENCE axis1 slots0..3 are TP, TP_INEXACT,
+	 * FN, DONT_CARE. The same layout is used by countMemberOutcomes. */
+	private void summarizeMembers(){
+		assert(memberMode && memberPrefixes!=null && memberPrefixes.length>0) : "Member aggregation needs explicitly declared grade partitions";
+		final ObjectSet<Target> inputs=new ObjectSet<Target>(Target.class);
+		final long[][][] counts=new long[2][3][4];
+		for(final String path:memberPrefixes){
+			final ExportCobalaminBenchmarkGrade part=new ExportCobalaminBenchmarkGrade(path);
+			part.readInputs();
+			for(final Genome genome:part.genomes){
+				final byte[] id=genome.id.getBytes(StandardCharsets.UTF_8);
+				probe.set(id, 0, id.length);
+				if(!inputs.add(probe.copy())){
+					throw new IllegalArgumentException("Repeated input ID across member-summary partitions: "+genome.id+" in "+path);
+				}
+			}
+			part.readRows();
+			part.checkSummary();
+			part.countMemberOutcomes(counts);
+		}
+		try(Output rows=new Output(out+".member_outcomes.tsv")){
+			rows.writer.println("axis\tmember\tinputs\ttotal\ttp\ttp_inexact\tmatched\tunmatched\tmasked\tmissed\tdont_care\tqualification");
+			for(int axis=0; axis<2; axis++){
+				for(int member=0; member<3; member++){
+					final long[] c=counts[axis][member];
+					buffer.clear().append(axis==0 ? "QUERY_EMITTED_MEMBER" : "REFERENCE_REPRESENTATIVE_MEMBER")
+						.tab().append(MEMBERS[member]).tab().append(inputs.size()).tab().append(c[0]+c[1]+c[2]+c[3])
+						.tab().append(c[0]).tab().append(c[1]).tab().append(c[0]+c[1]);
+					if(axis==0){buffer.tab().append(c[3]).tab().append(c[2]).append("\tNA\tNA");}
+					else{buffer.append("\tNA\tNA\t").append(c[2]).tab().append(c[3]);}
+					rows.writer.print(buffer.append("\tRECORDED_UNION_ASSIGNMENTS_NOT_SUBTYPE_ACCURACY\n"));
+				}
+			}
+		}
+	}
+
+	/** The two axes partition the same union assignments. REFERENCE model is
+	 * its recorded representative member, never inferred from the emitted model. */
+	private void countMemberOutcomes(final long[][][] totals){
+		assert(memberMode && inexact && !legacy) : "Member axes must use recorded canonical overlap assignments";
+		final long[][][] counts=new long[2][3][4];
+		for(final Query query:queries){
+			p.set(query.row);
+			final int outcome=query.bucket==0 ? (p.termEquals("TP_INEXACT", 7) ? 1 : 0) : query.bucket==1 ? 2 : 3;
+			counts[0][query.member][outcome]++;
+			final long line=p.parseLong(9);
+			key.clear().append(query.genome.id).tab().append(line);
+			probe.set(key.array, 0, key.length());
+			require(line>0 && seen.add(probe.copy()), "Query line IDs must be unique within an input; repeated feature rows cannot count twice");
+			if(query.bucket!=0){continue;}
+			referenceKey(query.genome, 10);
+			final Reference ref=byReference.get(probe);
+			require(ref!=null && ref.scored && !ref.consumed, "Every member-summary TP must consume exactly one declared scored reference");
+			require(ref.outcome==outcome && ref.queryLine==line,
+				"Recorded QUERY/REFERENCE match class and reciprocal query line must agree; no rematching is allowed");
+			final int start=p.parseInt(4), stop=p.parseInt(5);
+			require(p.termEquals(ref.seqid, 3) && strand(6)==ref.strand && start>0 && stop>=start
+				&& p.parseInt(16)==(ref.strand=='-' ? ref.stop-stop : start-ref.start)
+				&& p.parseInt(17)==(ref.strand=='-' ? ref.start-start : stop-ref.stop),
+				"Recorded member-summary witness must retain its contig, strand and signed endpoint offsets");
+			ref.consumed=true;
+		}
+		long matched=0, inexactCount=0, missed=0, masked=0;
+		for(final Reference ref:references){
+			require(ref.consumed==(ref.outcome<2), "Every recorded matched reference must have its reciprocal QUERY witness; FN and masks cannot be consumed");
+			counts[1][ref.member][ref.outcome]++;
+			if(ref.outcome<2){matched++;}
+			if(ref.outcome==1){inexactCount++;}
+			if(ref.outcome==2){missed++;}
+			if(ref.outcome==3){masked++;}
+		}
+		require(matched+missed==scoredReferences && inexactCount==inexactMatches
+			&& missed==missedReferences && masked==maskedReferences,
+			"Reference member counts must conserve the recorded union matched/inexact/missed/masked totals");
+		for(int axis=0; axis<2; axis++){
+			for(int member=0; member<3; member++){
+				for(int outcome=0; outcome<4; outcome++){totals[axis][member][outcome]+=counts[axis][member][outcome];}
+			}
+		}
+	}
+
+	/** Bind all current models, including zero-call/zero-win models. Counts refer
+	 * to already assigned scored QUERY matches, not construction membership. */
+	private void countModelWins(){
+		require(genomes.size()==expectedInputs, "Model-win input population differs from the declared complete panel");
+		final ObjectMap<Target, ModelWins> byId=new ObjectMap<Target, ModelWins>(Target.class, ModelWins.class);
+		for(int member=0; member<3; member++){
+			final boolean trimmed=Shared.TRIM_READ_DESCRIPTION;
+			final NcrnaSupport.Library library;
+			try{
+				Shared.TRIM_READ_DESCRIPTION=false;
+				library=NcrnaSupport.loadLibrary(modelFiles[member]);
+			}finally{Shared.TRIM_READ_DESCRIPTION=trimmed;}
+			require(library.names.length==modelCounts[member], "Model-win roster count differs for "+MEMBERS[member]);
+			for(int i=0; i<library.names.length; i++){
+				final String id=library.names[i];
+				final ModelWins model=new ModelWins(member, i, id, library.headers[i]);
+				final byte[] key=id.getBytes(StandardCharsets.UTF_8);
+				probe.set(key, 0, key.length);
+				require(id.startsWith(PREFIXES[member]) && byId.put(probe.copy(), model)==null, "Model-win IDs must be unique and belong to their declared member");
+				modelWins.add(model);
+			}
+		}
+		final long[] totals=new long[3];
+		for(final Query query:queries){
+			p.set(query.row);
+			p.setBounds(15);
+			int end=p.a();
+			while(end<p.b() && (p.line()[end]&255)>32){end++;}
+			probe.set(p.line(), p.a(), end);
+			final ModelWins model=byId.get(probe);
+			if(model==null || model.member!=query.member){
+				throw new IllegalArgumentException("Every emitted model must belong to the supplied current roster: "+p.parseString(15));
+			}
+			if(query.bucket==0){
+				model.wins++;
+				totals[model.member]++;
+			}
+		}
+		for(int member=0; member<3; member++){
+			require(totals[member]==members[member][0], "Model-win counts must conserve each emitted member's assigned matches");
+		}
+	}
+
+	private void writeModelWins(){
+		try(Output rows=new Output(out+".model_wins.tsv"); Output summary=new Output(out+".model_win_summary.tsv")){
+			rows.writer.println("emitted_member\tmember_model_ordinal0\tmodel_id\tmatched_wins\tmodel_header");
+			for(final ModelWins model:modelWins){
+				rows.writer.print(buffer.clear().append(MEMBERS[model.member]).tab().append(model.ordinal).tab().append(model.id)
+					.tab().append(model.wins).tab().append(model.header).nl());
+			}
+			summary.writer.println("emitted_member\tinputs\tmodels\tmatched_wins\tmin\tq1\tmedian\tq3\tmax\tzero_wins\tfewer_than_15\tfewer_than_46\tquantile_rule\tqualification");
+			for(int member=-1; member<3; member++){
+				final long[] values=new long[member<0 ? modelWins.size() : modelCounts[member]];
+				int next=0, zero=0, under15=0, under46=0;
+				long sum=0;
+				for(final ModelWins model:modelWins){
+					if(member>=0 && model.member!=member){continue;}
+					values[next++]=model.wins;
+					sum+=model.wins;
+					if(model.wins==0){zero++;}
+					if(model.wins<15){under15++;}
+					if(model.wins<46){under46++;}
+				}
+				assert(next==values.length) : "Every declared model, including zeros, belongs to exactly one member distribution";
+				Arrays.sort(values);
+				buffer.clear().append(member<0 ? "ALL" : MEMBERS[member]).tab().append(genomes.size()).tab().append(values.length)
+					.tab().append(sum).tab().append(values[0]).tab().append(quantile(values, .25), 6, true)
+					.tab().append(quantile(values, .5), 6, true).tab().append(quantile(values, .75), 6, true)
+					.tab().append(values[values.length-1]).tab().append(zero).tab().append(under15).tab().append(under46)
+					.append("\tLINEAR_INTERPOLATION_AT_(N-1)*P\t")
+					.append(inexact ? "INCLUSIVE_ASSIGNED_QUERY_MATCHES" : "STRICT_ASSIGNED_QUERY_MATCHES")
+					.append("_NOT_CONSTRUCTION_SUPPORT_OR_UNIQUE_MODEL_COVERAGE\n");
+				summary.writer.print(buffer);
+			}
+		}
+	}
+
+	private static double quantile(final long[] sorted, final double fraction){
+		assert(sorted.length>0 && fraction>=0 && fraction<=1) : "Quantiles include all declared models in sorted nonempty populations";
+		final double position=(sorted.length-1)*fraction;
+		final int lower=(int)position, upper=Math.min(lower+1, sorted.length-1);
+		return sorted[lower]+(position-lower)*(sorted[upper]-sorted[lower]);
 	}
 
 	/** Copies final measurement fields; never estimates CPU or repeats calling. */
@@ -143,7 +365,7 @@ public final class ExportCobalaminBenchmarkGrade{
 
 	/** Reads the recorded union outcomes; excluded canonical families are skipped. */
 	private void readRows(){
-		final String path=prefix+(legacy ? ".calls.tsv" : ".raw.tsv");
+		final String path=prefix+(legacy ? ".calls.tsv" : inexact ? ".overlap.raw.tsv" : ".raw.tsv");
 		try(Input in=new Input(path)){
 			RrnaResourceIO.header(in.reader, legacy ? LEGACY_CALLS : GradeNcrnaReference.RAW_HEADER, path);
 			for(byte[] row; (row=in.reader.nextLine())!=null;){
@@ -154,7 +376,25 @@ public final class ExportCobalaminBenchmarkGrade{
 				}else{
 					if(!p.termEquals("cobalamin", 2)){continue;}
 					if(p.termEquals("REFERENCE", 1)){
-						addReference(0, 8, 3, 4, 5, 6, !p.termEquals("DONT_CARE", 7));
+						final Reference ref=addReference(0, 8, 3, 4, 5, 6, !p.termEquals("DONT_CARE", 7));
+						if(memberMode){
+							for(int i=0; i<3; i++){
+								if(p.termEquals(MEMBERS[i], 15)){
+									ref.member=i;
+									break;
+								}
+							}
+							require(ref.member>=0, "Raw reference model must name its representative RF00174/RF01482/RF01689 member");
+							ref.outcome=p.termEquals("TP", 7) ? 0 : p.termEquals("TP_INEXACT", 7) ? 1
+								: p.termEquals("FN", 7) ? 2 : p.termEquals("DONT_CARE", 7) ? 3 : -1;
+							require(ref.outcome>=0, "Raw reference has an unknown recorded member-summary outcome");
+							if(ref.outcome<2){
+								ref.queryLine=p.parseLong(11);
+								require(ref.queryLine>0, "Matched reference must retain its original query line");
+							}else{
+								require(p.termEquals(".", 11), "Missed and masked references cannot name a scored query witness");
+							}
+						}
 						continue;
 					}
 					require(p.termEquals("QUERY", 1), "Selected canonical row must be QUERY or REFERENCE");
@@ -165,7 +405,7 @@ public final class ExportCobalaminBenchmarkGrade{
 	}
 
 	/** One retained reference owns its genome-qualified identity and coordinates. */
-	private void addReference(final int input, final int id, final int seqid, final int start,
+	private Reference addReference(final int input, final int id, final int seqid, final int start,
 			final int stop, final int strand, final boolean scored){
 		final Genome genome=genome(input);
 		referenceKey(genome, id);
@@ -175,6 +415,7 @@ public final class ExportCobalaminBenchmarkGrade{
 		byReference.put(probe.copy(), ref);
 		references.add(ref);
 		if(scored){scoredReferences++;}else{maskedReferences++;}
+		return ref;
 	}
 
 	/** Retains one selected query row; no per-field transient Strings are created. */
@@ -182,7 +423,8 @@ public final class ExportCobalaminBenchmarkGrade{
 		final Genome genome=genome(legacy ? 3 : 0);
 		final int member=member(legacy ? 9 : 15);
 		final int outcome=legacy ? 10 : 7;
-		final boolean tp=p.termEquals("TP", outcome);
+		final boolean endpointInexact=inexact && p.termEquals("TP_INEXACT", outcome);
+		final boolean tp=p.termEquals("TP", outcome) || endpointInexact;
 		final boolean masked=p.termEquals(legacy ? "UNSCORED" : "MASKED", outcome);
 		require(tp || masked || p.termEquals(legacy ? "APPARENT_FP" : "FP", outcome), "Union query has an unknown recorded outcome");
 		final boolean duplicate;
@@ -201,11 +443,13 @@ public final class ExportCobalaminBenchmarkGrade{
 		members[member][bucket]++;
 		genome.counts[bucket]++;
 		if(duplicate){duplicates++;}
+		if(endpointInexact){inexactMatches++;}
 		queries.add(new Query(genome, member, bucket, row));
 	}
 
 	/** Existing summaries reconcile the complete emitted-member partition. */
 	private void checkSummary(){
+		if(inexact){checkInexactSummary();return;}
 		final String path=prefix+".summary.tsv";
 		boolean found=false;
 		try(Input in=new Input(path)){
@@ -234,6 +478,40 @@ public final class ExportCobalaminBenchmarkGrade{
 			}
 		}
 		require(found, "The completed grade lacks its selected union summary");
+	}
+
+	/** Reconciles existing inclusive assignments; never recomputes overlap matches.
+	 * The ordinary input roster retains zero-call genomes independently of the
+	 * per-family inclusive count rows. Endpoint exactness still uses actual bounds. */
+	private void checkInexactSummary(){
+		final String path=prefix+".overlap.summary.tsv";
+		boolean found=false;
+		try(Input input=new Input(path)){
+			RrnaResourceIO.header(input.reader, GradeNcrnaReference.INEXACT_HEADER, path);
+			for(byte[] line; (line=input.reader.nextLine())!=null;){
+				p.set(line);
+				if(!p.termEquals("cobalamin", 1)){continue;}
+				require(!found && p.terms()==19 && p.termEquals("ALL", 0), "Exactly one complete inclusive union summary must exist");
+				found=true;
+				final long[] sum=new long[4];
+				for(final long[] member:members){for(int i=0; i<4; i++){sum[i]+=member[i];}}
+				final long matched=sum[0], unmatched=sum[2]+sum[3];
+				missedReferences=p.parseLong(9);
+				require(p.parseLong(8)==inexactMatches && inexactMatches<=matched
+					&& p.parseLong(3)==matched-inexactMatches, "Recorded inexact match counts disagree with the inclusive raw assignments");
+				require(missedReferences>=0 && p.parseLong(2)==genomes.size() && p.parseLong(7)==matched
+					&& p.parseLong(10)==unmatched && p.parseLong(11)==sum[1]
+					&& p.parseLong(12)==scoredReferences && scoredReferences==matched+missedReferences
+					&& p.parseLong(13)==maskedReferences && p.parseLong(14)==duplicates,
+					"Inclusive emitted-member, mask and reference counts must reconcile the complete recorded union");
+				expected5=p.parseLong(15);
+				expected3=p.parseLong(16);
+				expectedBoth=p.parseLong(17);
+				precision=matched+unmatched==0 ? "NA" : Double.toString(matched/(double)(matched+unmatched));
+				recall=scoredReferences==0 ? "NA" : Double.toString(matched/(double)scoredReferences);
+			}
+		}
+		require(found, "The completed overlap grade lacks its selected union summary");
 	}
 
 	/*--------------------------------------------------------------*/
@@ -307,7 +585,7 @@ public final class ExportCobalaminBenchmarkGrade{
 			buffer.clear().append(genomes.size()).tab().append(scoredReferences).tab().append(maskedReferences)
 				.tab().append(queries.size()).tab().append(sum[0]).tab().append(sum[2]+sum[3]).tab().append(missedReferences).tab().append(sum[1])
 				.tab().append(duplicates).tab().append(expected5).tab().append(expected3).tab().append(expectedBoth).tab().append(precision).tab().append(recall)
-				.tab().append(legacy ? "LEGACY_FULL_CM_UNION" : "CANONICAL_NEW_CM_UNION");
+				.tab().append(legacy ? "LEGACY_FULL_CM_UNION" : inexact ? "CANONICAL_NEW_CM_UNION_INEXACT" : "CANONICAL_NEW_CM_UNION");
 			for(final String time:times){buffer.tab().append(time);}
 			for(final long value:alignments){buffer.tab();if(value<0){buffer.append("NA");}else{buffer.append(value);}}
 			metrics.writer.print(buffer.nl());
@@ -375,6 +653,8 @@ public final class ExportCobalaminBenchmarkGrade{
 		final char strand;
 		final boolean scored;
 		boolean consumed;
+		int member=-1, outcome=-1;
+		long queryLine=-1;
 	}
 	private static final class Query{
 		Query(final Genome genome_, final int member_, final int bucket_, final byte[] row_){
@@ -387,8 +667,25 @@ public final class ExportCobalaminBenchmarkGrade{
 		final int member, bucket;
 		final byte[] row;
 	}
+	private static final class ModelWins{
+		ModelWins(final int member_, final int ordinal_, final String id_, final String header_){
+			member=member_;
+			ordinal=ordinal_;
+			id=id_;
+			header=header_;
+		}
+		final int member, ordinal;
+		final String id, header;
+		long wins;
+	}
+	private String[] modelFiles;
+	private int[] modelCounts;
+	private int expectedInputs=-1;
+	private final ArrayList<ModelWins> modelWins=new ArrayList<ModelWins>();
 	private String prefix, out, panel;
-	private boolean legacy;
+	private boolean legacy, inexact, memberMode;
+	private String[] memberPrefixes;
+	private long inexactMatches;
 	private long duplicates, expected5, expected3, expectedBoth;
 	private long scoredReferences, maskedReferences, missedReferences;
 	private String precision, recall;

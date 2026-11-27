@@ -410,6 +410,11 @@ euk18swindowpad=3109  Fallback window radius. Mapping uses K9.
 euk18sflank=100  Retained explicit engineering control.
 euk18sminlen=916 euk18smaxlen=4000 euk18sseedminhits=2
 euk18sseeddistinct=t euk18scollapsefrac=0.9
+ncrnacdsstarts=f Private cobalamin experiment: an accepted RNA may suppress an
+                over-extended CDS start only when a retained downstream real
+                start preserves its frame/stop and permits a legal RNA/CDS edge.
+                Existing scores and allowed residual overlap are retained.
+                CDS accuracy effects are experimental; disabled by default.
 ncrnaedge=t     Rescue rejected generic ncRNA candidates only at physical contig
                 ends; preserve existing family length cutoffs. Edge rescues
                 require identity >=0.60 and the family's verifier thresholds.
@@ -543,14 +548,43 @@ tmrna=t         Enable tmRNA; requires ncrna=t (or
                 generalncrna=t).  Endpoint refinement follows the global
                 ncrnaboundarynet flag below.
 cobalamin=f     Enable B12 riboswitch calling (RF00174, RF01482, RF01689).
-                Default off; uses calibrated seed, ranking and identity settings.
+                Default off. The complete package uses one merged model walk,
+                covariance ends for RF00174, positional tips for RF01482, and
+                alignment-gated covariance acceptance. Calls retain their member.
 cobalaminroot=  Explicit group directory containing manifest.tsv, shared seeds,
-                and the three RF-named resource subdirectories.
+                and the three RF-named resource subdirectories. Select a complete
+                group; mixing individual payloads with its caller policy fails.
+cobalamincm=    Explicit development endpoint policy for legacy groups. A complete
+                release package selects learned main-member ends with GA hold;
+                incompatible explicit CM, GA or member choices fail.
+                Legacy off preserves configured tips;
+                contact tries radius16 then32 on band contact or impossibility,
+                keeping original ends when no finite band result is available.
+                32 tries radius32 with full-search fallback.
+                32only stops at32; 32to64 retries once at64 on band contact.
+                Neither uses exact search; unavailable/impossible keeps originals.
+                24to64 and 24to48 start at24, retry once on contact or impossibility,
+                then stop at64 or48. They keep unavailable-anchor originals.
+                Requires cobalamin=t and each selected member's CM and full map.
+                Replaces tip nets/voting after alignment trim, before selection.
+cobalamincmga=  Retain original ends when a CM proposal scores below that model's
+                GA threshold. Experimental; requires an enabled CM mode above.
+                Does not reject the accepted gene or change its detection score.
+cobalamincmmembers=  Legacy groups accept all or an explicit
+                comma list of RF00174,RF01482,RF01689. Unselected members retain
+                their ordinary packaged tips, or stay unrefined without tips.
+                A subset requires an enabled CM mode; it never enables CM implicitly.
 cobalaminddl=   Experimental RF00174 member-voted profile file; omitted by default.
                 Requires the ordinary passes=1 mode; never inherited by another caller run.
                 Uses forward middle-masked10-mer/2048-bucket raw-key ranking,
                 interleaved with the ordinary native floor2/keep-best proposals.
+cobalaminddlconsensus=f  Add separate runtime consensus-sketch matches to member
+                matches as a plain sum. Requires ordering-only 1024-bin profiles;
+                uses their exact geometry, seed and blacklist. No member keys change.
 cobalaminddlcap=384  Distinct proposal cap; allowed:384,50,all.
+		Ordering-only profiles instead inherit the loaded RF00174 topn policy;
+		omit this option, or supply a legacy-allowed value agreeing with topn.
+		They sort all native-eligible models before applying that cap.
                 all requires selected-format profiles and an explicit ncrnapolicy
                 with topn=2147483647,patience=2147483647 (both unlimited).
                 Unlimited rescue selects the highest-identity accepting model.
@@ -770,13 +804,18 @@ ncrnadiag=     Optional stage-diagnostic TSV path; alias r58diag. Reports all
 ncrnaboundarytrace=  Optional candidate-to-final-path boundary score TSV.
 ncrnaboundarytracefamily=  Explicit shared-boundary member or group to trace.
                 Both options, gffinputordinal=t, unpaired assemblies, and an
-                ungated scalar/positional package are required. No output or
+                ungated scalar/positional package are required for score replay. No output or
                 capture state is created when omitted. Scalar capture also
                 scores the second end with the first held for margin replay;
                 its extra diagnostic work is not ordinary inference timing.
-ncrnaboundaryinvocationsonly=f  Observe actual positional-refiner calls and final
+ncrnaboundaryinvocationsonly=f  Observe actual positional/CM-refiner calls and final
                                selection without score replay. Requires the two
                                trace options above; supports full-error packages.
+                With any enabled cobalamincm mode, invocation-only tracing records
+                post-trim originals, raw CM proposals, effective/final bounds,
+                score/GA, model lengths, band contacts and anchor provenance.
+                Missing searches remain distinct from attempted impossibility.
+                CM trace schema is version 4; this adds no CM alignments.
 ncrnaselectiontrace=  Optional selected path/report geometry and neighbour-overlap
                      TSV; requires invocation-only boundary tracing. Observes all
                      selected feature identities before applying reported ends.

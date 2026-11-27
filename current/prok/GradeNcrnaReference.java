@@ -70,6 +70,8 @@ public final class GradeNcrnaReference{
 				familymap=b;
 			}else if(a.equals("overlap")){
 				overlap=Float.parseFloat(b);
+			}else if(a.equals("inexact")){
+				includeInexact=Parse.parseBoolean(b);
 			}else if(a.equals("restrictreference")){
 				restrictReference=Parse.parseBoolean(b);
 			}else if(a.equals("subtypes")){
@@ -95,10 +97,14 @@ public final class GradeNcrnaReference{
 			require(Tools.testInputFiles(false, true, subtypes, witnesses, events), "Subtype mapping and evidence sidecars must be readable");
 		}
 		final int baseOutputs=restrictReference ? 4 : 3;
-		outputPaths=new String[baseOutputs+(subtypes==null ? 0 : NcrnaSubtypeGrade.SUFFIXES.length)];
+		final int ordinaryOutputs=baseOutputs+(subtypes==null ? 0 : NcrnaSubtypeGrade.SUFFIXES.length);
+		outputPaths=new String[ordinaryOutputs+(includeInexact ? INEXACT_SUFFIXES.length : 0)];
 		for(int i=0; i<baseOutputs; i++){outputPaths[i]=new File(prefix+SUFFIXES[i]).getAbsolutePath();}
-		for(int i=baseOutputs; i<outputPaths.length; i++){
+		for(int i=baseOutputs; i<ordinaryOutputs; i++){
 			outputPaths[i]=new File(prefix+NcrnaSubtypeGrade.SUFFIXES[i-baseOutputs]).getAbsolutePath();
+		}
+		for(int i=ordinaryOutputs; i<outputPaths.length; i++){
+			outputPaths[i]=new File(prefix+INEXACT_SUFFIXES[i-ordinaryOutputs]).getAbsolutePath();
 		}
 		require(Tools.testOutputFiles(false, false, false, outputPaths),
 			"Grading outputs must be fresh and writable");
@@ -148,11 +154,17 @@ public final class GradeNcrnaReference{
 			stats.included|=rule.include;
 		}
 		try(Output raw=new Output(prefix+".raw.tsv"); Output inputs=new Output(prefix+".inputs.tsv");
+			Output inexactRaw=includeInexact ? new Output(prefix+INEXACT_SUFFIXES[0]) : null;
+			Output inexactInputs=includeInexact ? new Output(prefix+INEXACT_SUFFIXES[1]) : null;
 			Output selection=restrictReference ? new Output(prefix+".selection.tsv") : null;
 			Output subtypeRaw=subtypeGrade==null ? null : new Output(prefix+NcrnaSubtypeGrade.SUFFIXES[0]);
 			Output subtypeSupport=subtypeGrade==null ? null : new Output(prefix+NcrnaSubtypeGrade.SUFFIXES[1])){
 			raw.writer.println(RAW_HEADER);
 			inputs.writer.println(INPUT_HEADER);
+			if(includeInexact){
+				inexactRaw.writer.println(RAW_HEADER);
+				inexactInputs.writer.println(INEXACT_HEADER);
+			}
 			if(subtypeGrade!=null){
 				subtypeRaw.writer.println(NcrnaSubtypeGrade.RAW_HEADER);
 				subtypeSupport.writer.println(NcrnaSubtypeGrade.SUPPORT_HEADER);
@@ -164,7 +176,8 @@ public final class GradeNcrnaReference{
 				flush(selection);
 			}
 			for(final Binding ref:references){
-				grade(ref, queryById.get(ref.id), reader, raw, inputs, selection, subtypeGrade, subtypeRaw, subtypeSupport);
+				grade(ref, queryById.get(ref.id), reader, raw, inputs, selection, subtypeGrade, subtypeRaw, subtypeSupport,
+					inexactRaw, inexactInputs);
 			}
 		}
 		if(subtypeGrade!=null){
@@ -172,6 +185,12 @@ public final class GradeNcrnaReference{
 			for(final String qualification:NcrnaSubtypeGrade.QUALIFICATIONS){outstream.println(qualification);}
 		}
 		writeSummary(references.size());
+		if(includeInexact){
+			try(Output out=new Output(prefix+INEXACT_SUFFIXES[2])){
+				out.writer.println(INEXACT_HEADER);
+				for(final Stats stats:inexactTotals){writeInexactCounts(out, "ALL", references.size(), stats);}
+			}
+		}
 		timer.stop();
 		outstream.println("Graded "+references.size()+" declared inputs against explicit reference dispositions. Time: "+timer);
 		outstream.println("Manifest agreement is not independent producer provenance; no biological admission or confidence calibration.");
@@ -180,7 +199,7 @@ public final class GradeNcrnaReference{
 	/** Retains only one input's loci while accumulating primitive per-family counts. */
 	private void grade(final Binding ref, final Binding query, final NcrnaReferenceCalls reader,
 		final Output raw, final Output inputOutput, final Output selection, final NcrnaSubtypeGrade subtypeGrade,
-		final Output subtypeRaw, final Output subtypeSupport){
+		final Output subtypeRaw, final Output subtypeSupport, final Output inexactRaw, final Output inexactInputs){
 		final ArrayList<Row> rows=codec.read(ref.gff, ref.id);
 		if(restrictReference){restrict(rows, ref.id, selection);}
 		final NcrnaReferenceCalls.Result queries=reader.read(query.gff, query.id);
@@ -235,7 +254,71 @@ public final class GradeNcrnaReference{
 		field(ref.gff).tab().append(queries.features).tab().append(queries.cds).tab().append(queries.trna)
 			.tab().append(queries.rrna).tab().append(queries.included).tab().append(queries.excluded).nl();
 		flush(inputOutput);
+		if(includeInexact){gradeInexact(ref.id, rows, queries.calls, selected, original, truth, masks, match, inexactRaw, inexactInputs);}
 		if(subtypeGrade!=null){subtypeGrade.grade(ref.id, rows, queries.calls, overlap, subtypeRaw, subtypeSupport);}
+	}
+
+	/** Parallel reports reuse the loaded loci and leave strict outputs unchanged.
+	 * Each family/input remains present even with no query, for genome breadth.
+	 */
+	private void gradeInexact(final String inputId, final ArrayList<Row> rows, final ArrayList<Call> calls,
+		final ArrayList<Locus> selected, final IntList original, final ArrayList<Locus> truth, final boolean[] masks,
+		final Result strict, final Output raw, final Output inputs){
+		final Result inclusive=NcrnaReferenceMatcher.match(selected, ones(selected.size()), truth, ones(truth.size()), masks, overlap, true);
+		final ObjectMap<String, Stats> local=new ObjectMap<String, Stats>(16, String.class, Stats.class);
+		for(final Stats family:families){local.put(family.family, new Stats(family.family));}
+		int index=0;
+		for(final Call call:calls){
+			final Stats stats=local.get(call.locus.family);
+			if(!call.included){
+				stats.excluded++;
+				writeCall(raw, inputId, call, -1, rows, inclusive, stats);
+				continue;
+			}
+			if(strict.callToReference[index]>=0){stats.strictTp++;}
+			else if(strict.callMaskReference[index]>=0){stats.strictMask++;}
+			else{stats.strictFp++;}
+			writeCall(raw, inputId, call, index++, rows, inclusive, stats);
+		}
+		assert(index==selected.size()) : "Both grade modes consume the same included query rows";
+		for(int ri=0; ri<rows.size(); ri++){
+			final Row row=rows.get(ri);
+			final Stats stats=local.get(row.locus.family);
+			final int ci=inclusive.referenceToCall[ri];
+			if(row.mask){stats.maskReferences++;}
+			else{
+				stats.scoredReferences++;
+				if(ci<0){stats.fn++;}
+				if(strict.referenceToCall[ri]<0){stats.strictFn++;}
+			}
+			final String outcome=row.mask ? "DONT_CARE" : ci<0 ? "FN" : inclusive.endpointInexact[ci] ? "TP_INEXACT" : "TP";
+			startLine(inputId, "REFERENCE", row.locus, outcome);
+			field(row.id).append("\t.\t.\t");
+			if(ci<0){buffer.append('.');}
+			else{buffer.append(calls.get(original.get(ci)).line);}
+			buffer.append("\t.\t.\t.\t");
+			field(row.model==null ? "." : row.model).append("\t.\t.\n");
+			flush(raw);
+		}
+		for(int i=0; i<families.size(); i++){
+			final Stats stats=local.get(families.get(i).family);
+			writeInexactCounts(inputs, inputId, 1, stats);
+			if(inexactTotals.size()<=i){inexactTotals.add(new Stats(stats.family));}
+			inexactTotals.get(i).add(stats);
+		}
+	}
+
+	private void writeInexactCounts(final Output out, final String input, final int inputs, final Stats stats){
+		require(stats.tp+stats.fn==stats.scoredReferences && stats.strictTp+stats.strictFn==stats.scoredReferences
+			&& stats.tp==stats.strictTp+stats.inexact && stats.tp+stats.fp+stats.maskCalls==stats.strictTp+stats.strictFp+stats.strictMask,
+			"Strict and inclusive grades must conserve references/queries and identify every added inexact pair");
+		field(input).tab();
+		field(stats.family).tab().append(inputs).tab().append(stats.strictTp).tab().append(stats.strictFn)
+			.tab().append(stats.strictFp).tab().append(stats.strictMask).tab().append(stats.tp).tab().append(stats.inexact)
+			.tab().append(stats.fn).tab().append(stats.fp).tab().append(stats.maskCalls).tab().append(stats.scoredReferences)
+			.tab().append(stats.maskReferences).tab().append(stats.duplicates).tab().append(stats.exact5)
+			.tab().append(stats.exact3).tab().append(stats.exactBoth).append("\tSTRICT_PAIRS_FIXED_THEN_POSITIVE_OVERLAP_ONE_TO_ONE\n");
+		flush(out);
 	}
 
 	/** Compacts the one-input list in place. Family enablement comes only from the
@@ -289,9 +372,12 @@ public final class GradeNcrnaReference{
 		final ArrayList<Row> references, final Result match, final Stats stats){
 		final int paired=index<0 ? -1 : match.callToReference[index];
 		final int masked=index<0 ? -1 : match.callMaskReference[index];
-		final String outcome=index<0 ? "EXCLUDED" : paired>=0 ? "TP" : masked>=0 ? "MASKED" : "FP";
+		final String outcome=index<0 ? "EXCLUDED" : paired>=0 ? match.endpointInexact[index] ? "TP_INEXACT" : "TP" : masked>=0 ? "MASKED" : "FP";
 		if(index>=0){
-			if(paired>=0){stats.tp++;}
+			if(paired>=0){
+				stats.tp++;
+				if(match.endpointInexact[index]){stats.inexact++;}
+			}
 			else if(masked>=0){stats.maskCalls++;}
 			else{stats.fp++;}
 			if(match.duplicateCalls[index]){stats.duplicates++;}
@@ -439,10 +525,30 @@ public final class GradeNcrnaReference{
 	}
 	private static final class Stats{
 		Stats(final String family_){family=family_;}
+		void add(final Stats other){
+			assert(family.equals(other.family)) : "Aggregate only the same declared family across inputs";
+			tp+=other.tp;
+			fp+=other.fp;
+			fn+=other.fn;
+			scoredReferences+=other.scoredReferences;
+			maskReferences+=other.maskReferences;
+			maskCalls+=other.maskCalls;
+			duplicates+=other.duplicates;
+			excluded+=other.excluded;
+			exact5+=other.exact5;
+			exact3+=other.exact3;
+			exactBoth+=other.exactBoth;
+			strictTp+=other.strictTp;
+			strictFp+=other.strictFp;
+			strictFn+=other.strictFn;
+			strictMask+=other.strictMask;
+			inexact+=other.inexact;
+		}
 		final String family;
 		boolean included;
 		long tp, fp, fn, scoredReferences, maskReferences, maskCalls, duplicates, excluded;
 		long exact5, exact3, exactBoth;
+		long strictTp, strictFp, strictFn, strictMask, inexact;
 	}
 
 	/*--------------------------------------------------------------*/
@@ -452,12 +558,13 @@ public final class GradeNcrnaReference{
 	private String input, reference, familymap, prefix;
 	private String subtypes, witnesses, events;
 	private float overlap=.5f;
-	private boolean restrictReference;
+	private boolean restrictReference, includeInexact;
 	private final PrintStream outstream;
 	private final NcrnaReferenceGff codec=new NcrnaReferenceGff();
 	private final ByteBuilder buffer=new ByteBuilder();
 	private final ObjectMap<String, Stats> byFamily=new ObjectMap<String, Stats>(16, String.class, Stats.class);
 	private final ArrayList<Stats> families=new ArrayList<Stats>();
+	private final ArrayList<Stats> inexactTotals=new ArrayList<Stats>();
 	private final String[] outputPaths;
 	private final ObjectIntMap<String> selectionIndex=new ObjectIntMap<String>(String.class);
 	private final ArrayList<String> selectionFamilies=new ArrayList<String>();
@@ -469,4 +576,6 @@ public final class GradeNcrnaReference{
 	public static final String SUMMARY_HEADER="family\tinputs\tTP\tFP\tFN\tscored_references\tmasked_references\tmasked_calls\tduplicate_queries\texcluded_queries\texact_5prime\texact_3prime\texact_both\tprecision\trecall\toverlap\tqualification";
 	public static final String SELECTION_HEADER="record\tinput_id\tfamily\tretained_inputs\tomitted_inputs\tscored_kept\tmasked_kept\tscored_omitted\tmasked_omitted\tqualification";
 	private static final String[] SUFFIXES={".raw.tsv", ".inputs.tsv", ".summary.tsv", ".selection.tsv"};
+	private static final String[] INEXACT_SUFFIXES={".overlap.raw.tsv", ".overlap.inputs.tsv", ".overlap.summary.tsv"};
+	public static final String INEXACT_HEADER="input_id\tfamily\tinputs\tstrict_matched\tstrict_missed\tstrict_unmatched\tstrict_masked\tmatched\tendpoints_inexact\tmissed\tunmatched\tmasked_calls\tscored_references\tmasked_references\tduplicate_queries\texact_5prime\texact_3prime\texact_both\tqualification";
 }

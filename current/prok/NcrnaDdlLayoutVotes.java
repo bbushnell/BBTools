@@ -6,7 +6,7 @@ import map.IntHashMap;
  * most one greatest key per bin; equal compressed keys are the same candidate.
  * A consensus bonus applies once per distinct bin/key. Vote counts exist only
  * while building and never accompany the returned char[] profile.
- * @author Brian Bushnell, Raiden
+ * @author Brian, Raiden, Ganyu
  */
 public final class NcrnaDdlLayoutVotes{
 
@@ -50,6 +50,21 @@ public final class NcrnaDdlLayoutVotes{
 
 	public Result finish(){return finish(null, 0, true);}
 
+	/** Suppress only a voter's original maximum when it equals this model's
+	 * consensus maximum. No runner-up word is substituted within that voter. */
+	public void addSuppressed(final char[] keys, final char[] consensus){
+		if(keys==null || consensus==null || keys.length!=bins || consensus.length!=bins || members==Integer.MAX_VALUE){
+			throw new IllegalArgumentException("Suppressed voting requires complete member and own-consensus maxima with matching bins");
+		}
+		members++;
+		for(int bin=0; bin<bins; bin++){
+			final int key=keys[bin];
+			if(key==0 || key==consensus[bin]){continue;}
+			final int support=counts.increment((bin<<16)|key);
+			assert(support<=members) : "Suppression removes real member votes; it never adds a second word from the same voter/bin";
+		}
+	}
+
 	/** Updates a current greedy profile after one real member, without rescanning
 	 * the family's complete vote map. Its consensus prefix must be unchanged;
 	 * consensus replacement requires finish() once before further incremental adds. */
@@ -82,11 +97,24 @@ public final class NcrnaDdlLayoutVotes{
 	/** Shared selector also retains the legacy smaller-key tie policy. The key
 	 * prefix is borrowed read-only; weights never enter the real member counts. */
 	public Result finish(final KeyPrefix consensus, final long bonus, final boolean greatestTie){
-		if(members<1 || bonus<0 || bonus>Integer.MAX_VALUE+1L || bonus>0 && consensus==null
+		return finish(consensus, bonus, greatestTie, false);
+	}
+
+	/** Explicit ordering-bonus experiment. A held-out singleton may have no real
+	 * voters; consensus pseudo-votes never change Result.members. Legacy finish
+	 * retains its real-member requirement for a positive bonus. */
+	public Result finishConsensusBonus(final KeyPrefix consensus, final int bonus){
+		if(bonus<=0){throw new IllegalArgumentException("An explicit consensus bonus must be positive");}
+		return finish(consensus, bonus, true, true);
+	}
+
+	private Result finish(final KeyPrefix consensus, final long bonus, final boolean greatestTie, final boolean consensusOnlyAllowed){
+		if(members<0 || members==0 && bonus>0 && !consensusOnlyAllowed || bonus<0 || bonus>Integer.MAX_VALUE+1L || bonus>0 && consensus==null
 			|| consensus!=null && consensus.buckets()!=bins){
 			throw new IllegalArgumentException("Voting needs real members, a nonnegative bonus and matching consensus bins");
 		}
 		final Result result=new Result(new char[bins], members);
+		if(members==0 && bonus==0){return result;}
 		final long[] best=new long[bins];
 		final int[] keys=counts.keys(), values=counts.values();
 		final int invalid=counts.invalid();

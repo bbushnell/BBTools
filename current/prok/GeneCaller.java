@@ -128,7 +128,39 @@ public class GeneCaller extends ProkObject {
 		cobalaminDdlCap=cap;
 	}
 	private NcrnaDdlProfileResource cobalaminDdlProfiles;
+	/** Published with the complete family roster; all mutable search state stays on workers. */
+	public static CobalaminCallerResources cobalaminCallerResources;
+	private CobalaminCallerResources cobalaminServing;
 	private int cobalaminDdlCap;
+	/** Explicit three-member experiment. Profiles are either absent (native), one
+	 * joint resource, or three independent member resources in separate mode. */
+	public void setCobalaminClan(final boolean joint, final NcrnaDdlProfileResource[] profiles){
+		setCobalaminClan(joint, profiles, true);
+	}
+	/** Native ranking can be omitted only for the explicit joint DDL experiment. */
+	public void setCobalaminClan(final boolean joint, final NcrnaDdlProfileResource[] profiles, final boolean nativeRanking){
+		if(ncrnaScavengers!=null || cobalaminDdlProfiles!=null || cobalaminClanConfigured){
+			throw new IllegalStateException("Configure clan execution once on a fresh caller before any scavenger exists");
+		}
+		if(profiles!=null && profiles.length!=(joint ? 1 : 3)){
+			throw new IllegalArgumentException("Joint execution needs one combined profile; separate execution needs three member profiles");
+		}
+		if(!nativeRanking && (!joint || profiles==null)){
+			throw new IllegalArgumentException("An index-free clan requires joint execution and its explicit DDL profiles");
+		}
+		cobalaminClanConfigured=true;
+		cobalaminJoint=joint;
+		cobalaminNativeRanking=nativeRanking;
+		cobalaminMemberProfiles=profiles==null ? null : profiles.clone();
+	}
+	private boolean cobalaminClanConfigured, cobalaminJoint;
+	private boolean cobalaminNativeRanking=true;
+	private NcrnaDdlProfileResource[] cobalaminMemberProfiles;
+	private int[] cobalaminMemberSlots;
+	private boolean inactiveClanMember(final int index){
+		return cobalaminJoint && cobalaminMemberSlots!=null
+			&& (index==cobalaminMemberSlots[1] || index==cobalaminMemberSlots[2]);
+	}
 	StopTailSupport.Worker stopTailSupport;
 	/** Shared bounded search pool; this caller owns only its contig evidence and counters. */
 	public void setTailCascadeSupport(final StopTailCascadeSupport reference, final float bonus, final boolean protect){
@@ -223,8 +255,11 @@ public class GeneCaller extends ProkObject {
 	/** Null by default; receives primitive snapshots without access to mutable candidates. */
 	private TailCascadeObserver tailCascadeObserver;
 	private GeneCallerPathTrace.Observer pathObserver;
+	private NcrnaPathScoreBasis pathScoreBasis;
 	private GeneCallerPathTrace pathTrace;
 	private boolean pathActive;
+	/** Private experiment only; absent in ordinary callers. */
+	private NcrnaCdsStartSelection rnaCdsStartSelection;
 	private float tailCascadeOppositePenalty;
 	private TailCascadeOppositePenalty.Observer oppositePenaltyObserver;
 	/** Optional post-pruning preference. Native and zero-bonus callers remain disabled. */
@@ -251,6 +286,56 @@ public class GeneCaller extends ProkObject {
 			throw new IllegalStateException("Change the path observer only between completed contigs");
 		}
 		pathObserver=observer;
+	}
+	/** Install between contigs; the table is private to this native input worker. */
+	public void setPathScoreBasis(final NcrnaPathScoreBasis basis){
+		if(pathActive){throw new IllegalStateException("Change score provenance only between completed contigs");}
+		pathScoreBasis=basis;
+		installPathScoreBasis();
+	}
+	private void installPathScoreBasis(){
+		if(ncrnaScavengers==null){return;}
+		for(int i=0; i<ncrnaScavengers.size(); i++){
+			final NcrnaScavenger scorer=ncrnaScavengers.get(i);
+			scorer.setPathScoreObserver(pathScoreBasis==null || inactiveClanMember(i) ? null : pathScoreBasis.bind(scorer));
+		}
+	}
+	/** Read-only policy capture is allowed at the path observation seam. */
+	public GeneCallerPathPolicy pathPolicy(){
+		verifyPathReplayPolicy();
+		return new GeneCallerPathPolicy(this, geneticCode);
+	}
+	void verifyPathReplayPolicy(){
+		if(proteinSupport!=null || stopTailSupport!=null || tailCascade!=null || ssuCompetition!=null
+			|| rnaCdsStartSelection!=null || iterationCandidates!=null || cmVerifier!=null
+			|| CallGenes.NCRNA_REFRESH_CLAIMED_WINDOWS){
+			throw new IllegalStateException("Path replay excludes protein/SSU/start-reselection/candidate-reuse/CM/refresh policies");
+		}
+		if(ncrnaScavengers!=null){
+			for(final NcrnaScavenger scorer:ncrnaScavengers){
+				if(scorer.refreshClaimedWindows){throw new IllegalStateException("Path replay requires effective frozen scavenger windows");}
+			}
+		}
+	}
+	static float pathMinorStartMultiplier(){return MINOR_START_MULTIPLIER;}
+	GeneticCode pathGeneticCode(){return geneticCode;}
+	/** Option-off, clan-only experiment. The selector itself has no family-specific policy. */
+	public void setRnaAwareCdsStarts(final boolean enabled){
+		if(pathActive){throw new IllegalStateException("Change RNA-aware start selection only between contigs");}
+		rnaCdsStartSelection=enabled ? new NcrnaCdsStartSelection() : null;
+	}
+	/** The ordinary pre-merge seam; exposed for finite option-off/family-scope fixtures. */
+	public int selectRnaAwareCdsStarts(final ArrayList<Orf>[] frames, final ArrayList<Orf>[] rnas){
+		if(rnaCdsStartSelection==null || rnas==null){return 0;}
+		int removed=0;
+		for(final ArrayList<Orf> list:rnas){
+			for(final Orf rna:list){
+				if(NcrnaFamilyRegistry.isCobalamin(rna.ncrnaFamily)){
+					removed+=rnaCdsStartSelection.apply(frames, rna, maxOverlapSameStrand, maxOverlapOppositeStrand);
+				}
+			}
+		}
+		return removed;
 	}
 	public void setTailCascadeObserver(final TailCascadeObserver observer){
 		if(tailCascadeEvidence!=null || preparedTailReplay!=null){
@@ -489,6 +574,10 @@ public class GeneCaller extends ProkObject {
 					}
 				}
 			}
+			// Private experiment: reuse retained, scored starts before shared path search.
+			// No score, codon, stop or RNA report is changed. The accepted RNA may still
+			// lose the path, so this option stays off pending whole-genome CDS evaluation.
+			selectRnaAwareCdsStarts(brokenLists, rnaLists);
 			if(rnaLists[0]!=null && !rnaLists[0].isEmpty()) {
 				brokenLists[0].addAll(rnaLists[0]);
 				Collections.sort(brokenLists[0]);
@@ -650,6 +739,7 @@ public class GeneCaller extends ProkObject {
 			//overlap each other or tRNA biologically, so there's no reason to cross-claim.
 			if(ncrnaScavengers!=null){
 				for(int fi=0; fi<ncrnaScavengers.size(); fi++){
+					if(inactiveClanMember(fi)){continue;}
 					final int reuseSlot=2*fi+strand;
 					if(iterationCandidates!=null && !iterationCandidates.isTarget(fi)){
 						final ArrayList<Orf> retained=iterationCandidates.restoreRna(reuseSlot);
@@ -829,15 +919,42 @@ public class GeneCaller extends ProkObject {
 
 	/** Lazy construction stays on the owning worker, including CPU-clock spans. */
 	private void initializeNcrnaScavengers(){
+		if(ncrnaScavengers==null && cobalaminCallerResources!=null && !cobalaminCallerResources.matches(ncrnaFamilies)){
+			cobalaminCallerResources=null;
+		}
+		if(ncrnaScavengers==null && !cobalaminClanConfigured && cobalaminCallerResources!=null && CallGenes.COBALAMIN_ENABLED){
+			cobalaminServing=cobalaminCallerResources;
+			setCobalaminClan(true, new NcrnaDdlProfileResource[]{cobalaminServing.memberProfiles()}, false);
+		}
 		if(ncrnaCpuProfile==null && NcrnaCpuProfile.enabled()){
 			ncrnaCpuProfile=NcrnaCpuProfile.create(ncrnaFamilies.size());
 		}
 		if(ncrnaScavengers==null && !ncrnaFamilies.isEmpty()){
+			if(cobalaminClanConfigured){
+				cobalaminMemberSlots=new int[]{-1, -1, -1};
+				final String[] names={"cobalamin_rf00174", "cobalamin_rf01482", "cobalamin_rf01689"};
+				for(int i=0; i<ncrnaFamilies.size(); i++){
+					for(int member=0; member<3; member++){
+						if(names[member].equals(ncrnaFamilies.get(i).name)){
+							if(cobalaminMemberSlots[member]>=0){throw new IllegalArgumentException("Repeated clan member registration");}
+							cobalaminMemberSlots[member]=i;
+						}
+					}
+				}
+				for(final int slot:cobalaminMemberSlots){
+					if(slot<0){throw new IllegalArgumentException("The clan experiment requires all three loaded cobalamin members");}
+				}
+				if(cobalaminJoint && (iterationCandidates!=null || cmVerifier!=null
+					|| boundaryTrace!=null && !boundaryTrace.invocationsOnly()
+					|| ncrnaDiagSink!=null || ncrnaVoteDiagSink!=null || CallGenes.NCRNA_REFRESH_CLAIMED_WINDOWS)){
+					throw new IllegalArgumentException("Joint cobalamin requires frozen passes without candidate reuse or CM verification");
+				}
+			}
 			ncrnaScavengers=new ArrayList<>(ncrnaFamilies.size());
 			for(NcrnaFamily fam : ncrnaFamilies){
 				if(ncrnaCpuProfile!=null){ncrnaCpuProfile.begin(ncrnaScavengers.size(), NcrnaCpuProfile.INIT);}
 				try{
-				final boolean sketchOnly=cobalaminDdlProfiles!=null && cobalaminDdlProfiles.dual()
+				final boolean sketchOnly=cobalaminDdlProfiles!=null && cobalaminDdlProfiles.dual() && !cobalaminDdlProfiles.orderOnly()
 					&& "cobalamin_rf00174".equals(fam.name);
 				NcrnaScavenger scavenger=new NcrnaScavenger(fam.library, fam.models, fam.modelNames,
 					fam.kmerSet, fam.kLong, fam.minLen, fam.windowPad,
@@ -848,7 +965,8 @@ public class GeneCaller extends ProkObject {
 					fam.boundaryStartTable, fam.boundaryStopTable,
 					fam.boundaryStartInside, fam.boundaryStartOutside, fam.boundaryStopInside, fam.boundaryStopOutside,
 					fam.boundaryMeanLen, fam.boundaryStartOffsets, fam.boundaryStopOffsets,
-					fam.boundaryMarginStart, fam.boundaryMarginStop, !sketchOnly);
+					fam.boundaryMarginStart, fam.boundaryMarginStop, !sketchOnly
+						&& !(cobalaminJoint && isCobalaminMember(fam.name)));
 				applyNcrnaFamilyControls(scavenger, fam);
 				if(boundaryTrace!=null && boundaryTrace.accepts(fam)){
 					scavenger.setBoundaryTrace(boundaryTrace.family(fam));
@@ -863,6 +981,45 @@ public class GeneCaller extends ProkObject {
 				scavenger.setAttemptLog(Euk18sAttemptLog.forFamily(fam.name));
 				ncrnaScavengers.add(scavenger);
 				}finally{if(ncrnaCpuProfile!=null){ncrnaCpuProfile.end();}}
+			}
+			if(cobalaminClanConfigured){initializeCobalaminClan();}
+			if(pathScoreBasis!=null){installPathScoreBasis();}
+		}
+	}
+
+	private static boolean isCobalaminMember(final String name){
+		return "cobalamin_rf00174".equals(name) || "cobalamin_rf01482".equals(name) || "cobalamin_rf01689".equals(name);
+	}
+
+	/** Three registry identities remain intact; only the main execution slot owns
+	 * the shared walk. Resource-only minor contexts never enter the caller loop. */
+	private void initializeCobalaminClan(){
+		assert(cobalaminMemberSlots!=null && cobalaminMemberSlots.length==3)
+			: "Clan initialization follows complete loaded-member binding";
+		if(cobalaminJoint){
+			final NcrnaFamily[] families=new NcrnaFamily[3];
+			final NcrnaScavenger[] refiners=new NcrnaScavenger[3];
+			for(int member=0; member<3; member++){
+				families[member]=ncrnaFamilies.get(cobalaminMemberSlots[member]);
+				refiners[member]=ncrnaScavengers.get(cobalaminMemberSlots[member]);
+			}
+			final int slot=cobalaminMemberSlots[0];
+			if(ncrnaCpuProfile!=null){ncrnaCpuProfile.begin(slot, NcrnaCpuProfile.INIT);}
+			try{
+				final NcrnaClanScavenger clan=new NcrnaClanScavenger(families, refiners, cobalaminNativeRanking);
+				if(cobalaminMemberProfiles!=null){
+					if(cobalaminNativeRanking){clan.useMemberDdlProfiles(cobalaminMemberProfiles[0]);}
+					else{clan.useDdlOnlyProfiles(cobalaminMemberProfiles[0]);}
+				}
+				if(cobalaminServing!=null){cobalaminServing.configure(clan);}
+				ncrnaScavengers.set(slot, clan);
+			}finally{if(ncrnaCpuProfile!=null){ncrnaCpuProfile.end();}}
+			if(ncrnaCpuProfile!=null){ncrnaCpuProfile.executionName(slot, "cobalamin_clan");}
+		}else if(cobalaminMemberProfiles!=null){
+			for(int member=0; member<3; member++){
+				final NcrnaScavenger worker=ncrnaScavengers.get(cobalaminMemberSlots[member]);
+				if(member==0){worker.useDdlProfiles(cobalaminMemberProfiles[member], worker.indexTopN);}
+				else{worker.useMemberDdlProfiles(cobalaminMemberProfiles[member]);}
 			}
 		}
 	}
@@ -1075,6 +1232,17 @@ public class GeneCaller extends ProkObject {
 	 * fixtures; it does not generate, score or prune candidates. With an observer,
 	 * all candidates must belong to this contig and have no previous path links. */
 	public ArrayList<Orf> findPath(ArrayList<Orf>[] frameLists, byte[] bases){
+		// Sequence is used only for the observation length. Preserve the legacy
+		// unobserved null-bases case while requiring real sequence when observed.
+		return findPath(frameLists, pathObserver!=null ? bases.length : 0);
+	}
+
+	/** Searches saved candidate metadata with the native DP and no dummy sequence.
+	 * The caller and all effective scoring settings must match the captured graph.
+	 * Candidates are mutable, caller-owned and fresh for this trial, as above.
+	 */
+	public ArrayList<Orf> findPath(ArrayList<Orf>[] frameLists, int contigLength){
+		if(contigLength<0){throw new IllegalArgumentException("Path observations require a nonnegative contig length: "+contigLength);}
 		if(pathActive){throw new IllegalStateException("The path search is not reentrant");}
 		pathActive=true;
 		try{
@@ -1086,14 +1254,14 @@ public class GeneCaller extends ProkObject {
 			}
 			else{TailCascadeOppositePenalty.clear(frameLists); opposite=null;}
 			pathTrace=pathObserver==null ? null :
-				new GeneCallerPathTrace(pathObserver, frameLists, bases.length, tailCascade!=null);
-			final ArrayList<Orf> selected=findPathInner(frameLists, bases);
+				new GeneCallerPathTrace(pathObserver, frameLists, contigLength, tailCascade!=null, pathScoreBasis);
+			final ArrayList<Orf> selected=findPathInner(frameLists);
 			if(opposite!=null){opposite.report(selected, oppositePenaltyObserver);}
 			return selected;
 		}finally{pathTrace=null; pathActive=false;}
 	}
 
-	private ArrayList<Orf> findPathInner(ArrayList<Orf>[] frameLists, byte[] bases){
+	private ArrayList<Orf> findPathInner(ArrayList<Orf>[] frameLists){
 		ArrayList<Orf> all=new ArrayList<Orf>();
 		for(ArrayList<Orf> list : frameLists){all.addAll(list);}
 		if(all.isEmpty()){
@@ -2730,11 +2898,19 @@ public class GeneCaller extends ProkObject {
 	NcrnaCpuProfile completedCpuProfile(){
 		if(ncrnaCpuProfile!=null && ncrnaScavengers!=null){
 			for(int i=0; i<ncrnaScavengers.size(); i++){
+				if(inactiveClanMember(i)){continue;}
 				final NcrnaScavenger s=ncrnaScavengers.get(i);
+				if(s instanceof NcrnaClanScavenger){
+					final NcrnaClanScavenger clan=(NcrnaClanScavenger)s;
+					for(int member=0; member<3; member++){
+						ncrnaCpuProfile.cmEndpoints(cobalaminMemberSlots[member], clan.cmEndpointCounters(member));
+					}
+				}else{ncrnaCpuProfile.cmEndpoints(i, s.cmEndpointCounters());}
 				ncrnaCpuProfile.activity(i, s.alignmentCount(), s.alignedBases(), s.hbmScoreCalls(),
 					s.hbmBasesScored(), s.kmerHitCount(), s.windowCount());
 				ncrnaCpuProfile.verification(i, s.alignmentCpuNanos(), s.shortlistCpuNanos(),
 					s.hbmCpuNanos(), s.modelLengthChecks(), s.modelLengthSkips(), s.modelSpanRejects());
+				if(s instanceof NcrnaClanScavenger){ncrnaCpuProfile.clanComponents((NcrnaClanScavenger)s);}
 			}
 		}
 		return ncrnaCpuProfile;
@@ -2752,6 +2928,7 @@ public class GeneCaller extends ProkObject {
 		if(ncrnaScavengers!=null){
 			assert(ncrnaScavengers.size()==counts.length);
 			for(int i=0; i<ncrnaScavengers.size(); i++){
+				if(inactiveClanMember(i)){continue;}
 				counts[i]=ncrnaScavengers.get(i).alignmentCount();
 				if(ssuCompetition!=null && Euk18sRuntimeConfig.FAMILY.equals(ncrnaFamilies.get(i).name)){
 					counts[i]+=ssuCompetition.alignmentCount;
@@ -2791,6 +2968,7 @@ public class GeneCaller extends ProkObject {
 		if(ncrnaScavengers!=null){
 			assert(ncrnaScavengers.size()==counts.length) : "Family registry changed before cost aggregation";
 			for(int i=0;i<counts.length;i++){
+				if(inactiveClanMember(i)){continue;}
 				final NcrnaScavenger s=ncrnaScavengers.get(i);
 				counts[i]=(kind==0 ? s.alignedBases() : kind==1 ? s.hbmScoreCalls() : s.hbmBasesScored());
 				if(kind==0 && ssuCompetition!=null && Euk18sRuntimeConfig.FAMILY.equals(ncrnaFamilies.get(i).name)){

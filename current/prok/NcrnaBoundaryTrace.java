@@ -64,6 +64,7 @@ public final class NcrnaBoundaryTrace{
 			thread=thread_;
 		}
 		public boolean accepts(final NcrnaFamily family){return writer.accepts(family);}
+		public boolean invocationsOnly(){return writer.invocationsOnly;}
 		public Family family(final NcrnaFamily family){
 			require(accepts(family), "Cannot attach an unselected family to this trace");
 			validateFamily(family, writer.invocationsOnly);
@@ -179,7 +180,7 @@ public final class NcrnaBoundaryTrace{
 			if(r.selected){buffer.append(r.finalStop);}
 			buffer.tab();
 			if(r.selected){buffer.append(r.finalIndex);}
-			buffer.tab().append(r.family.positional ? "1-HOT" : "SLIDING").tab().append(r.family.radius).tab().append(r.scoredMask).tab()
+			buffer.tab().append(r.cmCaptured ? "CM" : r.family.positional ? "1-HOT" : "SLIDING").tab().append(r.family.radius).tab().append(r.scoredMask).tab()
 				.append(r.returned ? 1 : 0).tab().append(r.selected ? 1 : 0).tab()
 				.append(r.selected ? "SELECTED" : r.returned ? "PATH_REJECTED" : "SCAVENGER_REJECTED").tab();
 			if(r.known){buffer.append(r.windowStart);}
@@ -188,6 +189,21 @@ public final class NcrnaBoundaryTrace{
 			buffer.tab();
 			if(r.known){buffer.append(r.alignedLength);}
 			buffer.nl();
+			if(r.cmCaptured){
+				buffer.append("M\t").append(ordinal).tab().append(thread).tab().append(r.id)
+					.tab().append(r.start).tab().append(r.stop).tab().append(r.stop-r.start+1).tab();
+				if(r.proposedStart>=0){buffer.append(r.proposedStart);}
+				buffer.tab();
+				if(r.proposedStop>=0){buffer.append(r.proposedStop);}
+				buffer.tab();
+				if(r.proposedStart>=0){buffer.append(r.proposedStop-r.proposedStart+1);}
+				buffer.tab().append(r.consensusLength).tab().append(r.cmLength).tab();
+				if(r.cmScored){buffer.append(Float.floatToIntBits(r.cmScore));}
+				buffer.tab().append(Float.floatToIntBits(r.cmThreshold)).tab().append(r.cmWidth)
+					.tab().append(r.contacts16).tab().append(r.contacts32).tab().append(r.anchorKind).tab();
+				if(r.anchorOrigin>=0){buffer.append(r.anchorOrigin);}
+				buffer.tab().append(r.anchorUnavailable ? 1 : 0).tab().append(r.cmDecision).nl();
+			}
 			for(int i=0; i<r.count; i++){
 				final Window w=r.windows[i];
 				buffer.append("S\t").append(ordinal).tab().append(thread).tab().append(r.id).tab().append(w.end).tab()
@@ -253,6 +269,50 @@ public final class NcrnaBoundaryTrace{
 			current.invoked=true;
 		}
 		public boolean invocationsOnly(){return owner.writer.invocationsOnly;}
+		/** Exact candidate keys for a synchronous post-boundary observer. Coordinate
+		 * equality is insufficient when two windows produce the same final bounds. */
+		public long candidateId(final Orf orf){
+			final Record record=owner.pending.get(orf);
+			require(record!=null && record.family==this && record.complete,
+				"Acceptance evidence must bind the exact completed native boundary object before path selection");
+			return record.id;
+		}
+		public int inputOrdinal(){return owner.ordinal;}
+		public int workerId(){return owner.thread;}
+		/** Copies one synchronous CM result into the existing candidate lifecycle.
+		 * Original/proposed coordinates remain sense-oriented; C carries genomic
+		 * final selection. Empty proposed ends mean no finite proposal was available.
+		 */
+		public void cmProposal(final Orf orf, final int start, final int stop, final int proposedStart, final int proposedStop,
+				final int consensusLength, final int cmLength, final boolean scored, final float score, final float threshold,
+				final int width, final int contacts16, final int contacts32, final int anchorKind, final int anchorOrigin,
+				final boolean unavailable, final String decision){
+			require(invocationsOnly() && current!=null && owner.pending.get(orf)==current && !current.cmCaptured
+				&& NcrnaFamilyRegistry.isCobalamin(family.name) && start==current.start && stop==current.stop,
+				"A CM diagnostic must bind the exact post-trim candidate once before completion");
+			require(consensusLength>0 && cmLength>0 && Float.isFinite(threshold)
+				&& (!scored || Float.isFinite(score) || score==Float.NEGATIVE_INFINITY)
+				&& (proposedStart==-1 && proposedStop==-1 || proposedStart>=0 && proposedStop>=proposedStart && proposedStop<owner.length)
+				&& (width==0 || width==16 || width==24 || width==32 || width==48 || width==64 || width==-1
+					|| width==CobalaminCmEndpointRefiner.LEARNED_WIDTH) && anchorKind>=0 && anchorKind<=3
+				&& decision!=null && !decision.isEmpty(),
+				"CM evidence needs real model dimensions/GA and explicit finite, impossible or unavailable outcomes");
+			current.cmCaptured=true;
+			current.proposedStart=proposedStart;
+			current.proposedStop=proposedStop;
+			current.consensusLength=consensusLength;
+			current.cmLength=cmLength;
+			current.cmScored=scored;
+			current.cmScore=score;
+			current.cmThreshold=threshold;
+			current.cmWidth=width;
+			current.contacts16=contacts16;
+			current.contacts32=contacts32;
+			current.anchorKind=anchorKind;
+			current.anchorOrigin=anchorOrigin;
+			current.anchorUnavailable=unavailable;
+			current.cmDecision=decision;
+		}
 		/** Reuses the existing scavenger-return event, retaining unknown eligibility explicitly. */
 		public void returned(final Orf orf){
 			Record record=owner.pending.get(orf);
@@ -381,6 +441,10 @@ public final class NcrnaBoundaryTrace{
 		final Window[] windows=new Window[3];
 		int count, scoredMask, refinedStart, refinedStop, finalStart=-1, finalStop=-1, finalIndex=-1;
 		boolean complete, returned, selected, invoked;
+		boolean cmCaptured, cmScored, anchorUnavailable;
+		int proposedStart=-1, proposedStop=-1, consensusLength, cmLength, cmWidth, contacts16, contacts32, anchorKind, anchorOrigin=-1;
+		float cmScore, cmThreshold;
+		String cmDecision;
 	}
 
 	private static int selected(final float[] scores, final boolean[] available, final int radius, final float margin, final boolean positional){
@@ -419,12 +483,13 @@ public final class NcrnaBoundaryTrace{
 		// this separate route; the current alignment-centred cobalamin/SAM path is tested.
 		NcrnaFamilyRegistry.sharedBoundaryMember(family.name);
 		final boolean positional=family.boundaryRefinerFactory instanceof NcrnaPositionalBoundaryRefiner.Resources;
+		final boolean cm=family.boundaryRefinerFactory instanceof CobalaminCmEndpointRefiner.Resources;
 		final boolean scalar=family.boundary5NetTemplate!=null && family.boundary3NetTemplate!=null;
 		if(invocationsOnly){
-			require((positional || family.boundaryRefinerFactory==null && !scalar) && !family.voteEnds
+			require((positional || cm || family.boundaryRefinerFactory==null && !scalar) && !family.voteEnds
 				&& !family.nnCentre5Vote && !family.nnCentre3Vote && family.cdsStopConstraintFactory==null
 				&& family.rrnaEndpointFeatures==null && family.boundaryNetsByModel==null,
-				"Invocation-only evidence supports ordinary positional refiners or an unchanged member");
+				"Invocation-only evidence supports ordinary positional/CM refiners or an unchanged member");
 			return;
 		}
 		require(positional!=scalar && family.cdsStopConstraintFactory==null && family.rrnaEndpointFeatures==null
@@ -446,6 +511,16 @@ public final class NcrnaBoundaryTrace{
 	}
 	private static void require(final boolean valid, final String why){if(!valid){throw new IllegalStateException(why);}}
 
+	/** CM proposals extend only an explicitly enabled invocation trace. Historical
+	 * scalar/positional headers and score-replay schemas stay byte-identical. */
+	public static String header(final String target, final ArrayList<NcrnaFamily> families, final boolean invocationsOnly){
+		if(!invocationsOnly){return HEADER;}
+		for(final NcrnaFamily family:families){
+			if(matches(family.name, target) && family.boundaryRefinerFactory instanceof CobalaminCmEndpointRefiner.Resources){return CM_HEADER;}
+		}
+		return INVOCATION_HEADER;
+	}
+
 	public static final int FIRST=0, HELD=1, MOVED=2, INDEPENDENT=3;
 	public static final String HEADER="#ncrna_boundary_trace\t3\n"
 		+"#Coordinates: zero-based inclusive; anchors/windows/refined are original sense frame, final is genomic.\n"
@@ -461,5 +536,10 @@ public final class NcrnaBoundaryTrace{
 	 * No S rows or replay ability; zero scored_end_mask is expected, not missing inference. */
 	public static final String INVOCATION_HEADER=HEADER.replace("#ncrna_boundary_trace\t3\n",
 		"#ncrna_boundary_invocations\t3\n#Invocation-only: nn_invoked observes the custom refiner call; no score replay.\n");
+	public static final String CM_HEADER=INVOCATION_HEADER.replace("#ncrna_boundary_invocations\t3\n",
+		"#ncrna_cm_proposals\t4\n#CM: M joins C on input/worker/trace_id; score and GA are bit scores, not calibrated probabilities.\n")
+		+"#M\tinput_ordinal0\tworker\ttrace_id\toriginal_start0\toriginal_stop0\toriginal_length\tproposed_start0\tproposed_stop0\tproposed_length"
+		+"\tconsensus_length\tcm_length\tscore_bits\tga_bits\twidth\tcontacts16\tcontacts32\tanchor_kind\tanchor_origin0\tanchor_unavailable\tdecision\n"
+		+"#M flags: width=-2 learned,-1 exact,0 no search; anchor_kind=0 absent,1 accepting,2 trim,3 reconstructed; score empty=not attempted, negative infinity=impossible.\n";
 	private NcrnaBoundaryTrace(){}
 }

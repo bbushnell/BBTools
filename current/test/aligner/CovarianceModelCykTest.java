@@ -41,6 +41,8 @@ public final class CovarianceModelCykTest {
 		assert(length<=3):"Derivation enumeration is deliberately exponential and bounded";
 		final ArrayList<Derivation> all=enumerate(m, 0, length);final CovarianceModelCyk scorer=new CovarianceModelCyk(m, 100000);
 		final CovarianceModelScoreOnly compact=new CovarianceModelScoreOnly(m, 100000);
+		final CovarianceModelBandedCyk endpointScorer=new CovarianceModelBandedCyk(m,
+			new CovarianceModelLengthBands(m, 2), 100000, 100000);
 		for(int n=0; n<=length; n++){for(int word=0; word<(1<<(2*n)); word++){
 			final byte[] sequence=new byte[n];int code=word;for(int i=0; i<n; i++){sequence[i]=ALPHABET[code&3];code>>>=2;}
 			final String text=new String(sequence, StandardCharsets.US_ASCII);float expected=Float.NEGATIVE_INFINITY;
@@ -48,11 +50,14 @@ public final class CovarianceModelCykTest {
 			final CovarianceModelCyk.Result actual=scorer.align(sequence);
 			check(actual.score==expected, "Enumeration disagrees for "+m.name+":"+text+" expected="+expected+" actual="+actual.score);
 			check(compact.align(sequence).score==expected, "Reused triangular decks disagree with independent derivations for "+m.name+":"+text);
+			check(endpointScorer.align(sequence).alignment.score==expected,
+				"The shared recurrence must preserve the existing fixed-span banded result");
 			if(Float.isFinite(actual.score)){check(actual.matched+actual.inserted==n, "Trace emissions must conserve even an empty input");}
-			for(int limit=1; limit<=Math.max(1, n); limit++){compareSearch(scorer, sequence, text, all, limit);}
+			for(int limit=1; limit<=Math.max(1, n); limit++){compareSearch(scorer, endpointScorer, sequence, text, all, limit);}
 		}}
 	}
-	private static void compareSearch(CovarianceModelCyk scorer, byte[] sequence, String text, ArrayList<Derivation> all, int limit){
+	private static void compareSearch(CovarianceModelCyk scorer, CovarianceModelBandedCyk endpointScorer,
+			byte[] sequence, String text, ArrayList<Derivation> all, int limit){
 		assert(limit>0):"Interval-length bounds belong to the search comparison, not CM emissions";
 		float best=Float.NEGATIVE_INFINITY;final IntList starts=new IntList(), stops=new IntList();
 		for(int stop=1; stop<=sequence.length; stop++){for(int width=1; width<=Math.min(stop, limit); width++){
@@ -62,6 +67,10 @@ public final class CovarianceModelCykTest {
 			starts.add(start+1);stops.add(stop);
 		}}
 		final CovarianceModelCyk.Result r=scorer.search(sequence, limit);searchChecks++;
+		final CovarianceModelBandedCyk.EndpointResult compact=endpointScorer.searchOverlapping(sequence,
+			limit, 1, Math.max(1, sequence.length), null);
+		check(compact.score==best && compact.targetFrom==r.targetFrom && compact.targetTo==r.targetTo
+			&& compact.contacts==0, "Trace-free full layout must agree with independently enumerated intervals and ties");
 		check(r.score==best, "Search differs from independent derivation enumeration: "+text+" limit="+limit);
 		check(r.rootStarts.size==starts.size && r.rootStops.size==stops.size, "Every equal best root interval must be visible");
 		for(int i=0; i<starts.size; i++){check(r.rootStarts.get(i)==starts.get(i) && r.rootStops.get(i)==stops.get(i), "Tie coordinates/order differ from exact enumeration");}
@@ -83,6 +92,105 @@ public final class CovarianceModelCykTest {
 		check(!Float.isFinite(scorer.search(bytes("AC"), 1).score), "Explicit maximum hit length must be enforced");
 		boolean rejected=false;try{scorer.search(bytes("?AC"), 3);}catch(CovarianceModelCyk.UnsupportedSequenceException expected){rejected=true;}
 		check(rejected, "Illegal flanks remain explicitly unsupported, even when a canonical subinterval exists");
+		endpointPlacementFixtures(m);
+	}
+	private static void endpointPlacementFixtures(CovarianceModel m){
+		m.nodeType[0]=ROOT;
+		m.nodeType[1]=MATP;
+		m.nodeType[2]=END;
+		m.consensusRight[0]=3;
+		m.consensusLeft[2]=1;
+		m.consensusRight[2]=2;
+		final byte[] sequence=bytes("TTACGG");
+		final CovarianceModelConsensusMap map=new CovarianceModelConsensusMap(m, bytes("AC"), bytes("AC"), bytes("xx"));
+		final idaligner.AlignmentStats stats=new idaligner.AlignmentStats(true);
+		idaligner.QuantumAligner.alignAndTraceStatic(bytes("AC"), sequence, stats);
+		check(stats.rStart==2 && stats.rStop==3, "Literal Quantum anchors must bind the embedded consensus");
+		final CovarianceModelBandedCyk scorer=new CovarianceModelBandedCyk(m,
+			new CovarianceModelLengthBands(m, 2), 100000, 100000);
+		final CovarianceModelBandedCyk.EndpointResult wide=scorer.searchOverlapping(sequence, 6, 2, 5,
+			map.composeWindow(stats, 1));
+		check(wide.score==9 && wide.targetFrom==3 && wide.targetTo==4 && wide.contacts==0,
+			"Free-terminal projection must select the embedded CM extent instead of consuming the padded window");
+		final CovarianceModelBandedCyk.EndpointResult narrow=scorer.searchOverlapping(sequence, 6, 2, 5,
+			map.composeWindow(stats, 0));
+		check(narrow.score==9 && narrow.contacts!=0,
+			"A winning parse on imposed interior boundaries must carry contact bits without traceback");
+		final CovarianceModelBandedCyk.EndpointResult associated=scorer.searchOverlapping(bytes("ACAC"), 4, 3, 4, null);
+		check(associated.targetFrom==3 && associated.targetTo==4 && associated.unrestrictedFrom==1,
+			"Candidate overlap must reject a neighboring earlier tied copy without changing unrestricted diagnostics");
+		check(map.compose(null, 0, 0, 5, 1)==null && map.composeWindow(null, 1)==null,
+			"Missing glocal traces must remain explicit missing anchors for counted fallback");
+		for(int repeat=0; repeat<3; repeat++){
+			check(scorer.searchOverlapping(sequence, 6, 2, 5, map.composeWindow(stats, 0)).contacts!=0,
+				"Recycled narrow decks must reconstruct their own contact bits");
+			check(scorer.searchOverlapping(sequence, 6, 2, 5, null).contacts==0,
+				"A full-layout fallback cannot inherit a prior narrow band's contacts");
+			check(scorer.searchOverlapping(sequence, 6, 2, 5, map.composeWindow(stats, 2)).contacts==0,
+				"A wider placement cannot inherit contacts from recycled narrow/full buffers");
+		}
+		bifurcationContacts();
+		choiceContacts();
+	}
+	private static void bifurcationContacts(){
+		final CovarianceModel m=model("two_pairs", 6, 6, 4);
+		state(m, 0, S, 0, 1, new float[]{0});
+		state(m, 1, B, 1, 2, new float[0]);
+		m.childCount[1]=4;
+		state(m, 2, MP, 2, 3, new float[]{0});
+		state(m, 3, E, 3, -1, new float[0]);
+		state(m, 4, MP, 4, 5, new float[]{0});
+		state(m, 5, E, 5, -1, new float[0]);
+		m.nodeType[0]=ROOT;
+		m.nodeType[1]=BIF;
+		m.consensusRight[0]=m.consensusRight[1]=5;
+		for(int node=2; node<6; node++){
+			m.nodeType[node]=(node&1)==0 ? MATP : END;
+			m.consensusLeft[node]=node<4 ? 1 : 3;
+			m.consensusRight[node]=node<4 ? 2 : 4;
+		}
+		Arrays.fill(m.emissionScore[2], Float.NEGATIVE_INFINITY);
+		Arrays.fill(m.emissionScore[4], Float.NEGATIVE_INFINITY);
+		m.emissionScore[2][0]=5;
+		m.emissionScore[4][6]=7;
+		final CovarianceModelBandedCyk scorer=new CovarianceModelBandedCyk(m,
+			new CovarianceModelLengthBands(m, 2), 100000, 100000);
+		final byte[] sequence=bytes("TAACGT");
+		final int[][] lows={{0, 2, 2, 3, 4}, {0, 1, 2, 4, 4}, {0, 1, 2, 3, 4}};
+		final int[][] highs={{2, 2, 4, 5, 6}, {2, 3, 4, 4, 6}, {2, 3, 4, 5, 6}};
+		for(int trial=0; trial<3; trial++){
+			// Root, B and both emitting pairs are interior. Only the left END
+			// touches in trial0, only the right END in trial1, neither in trial2.
+			final CovarianceModelBandedCyk.EndpointResult result=scorer.searchOverlapping(sequence, 6, 2, 5,
+				CovarianceModelPlacementBands.window(m, 6, lows[trial], highs[trial], 0));
+			check(result.score==12 && result.targetFrom==2 && result.targetTo==5,
+				"A bifurcation must retain the independently specified AA+CG parse");
+			check(result.contacts==(trial<2 ? 15 : 0),
+				"Either winning B child must propagate its own contact bits; recycled unrelated contacts must disappear");
+		}
+	}
+	private static void choiceContacts(){
+		for(int advantage=-1; advantage<=1; advantage++){
+			final CovarianceModel m=tie();
+			m.transitionScore[0][1]=advantage;
+			m.nodeType[0]=ROOT;
+			m.nodeType[1]=BEGL;
+			m.nodeType[2]=BEGR;
+			m.nodeType[3]=MATL;
+			m.nodeType[4]=END;
+			Arrays.fill(m.consensusRight, 2);
+			m.consensusLeft[2]=m.consensusLeft[4]=1;
+			Arrays.fill(m.emissionScore[3], Float.NEGATIVE_INFINITY);
+			m.emissionScore[3][0]=3;
+			final CovarianceModelBandedCyk scorer=new CovarianceModelBandedCyk(m,
+				new CovarianceModelLengthBands(m, 2), 100000, 100000);
+			final CovarianceModelBandedCyk.EndpointResult result=scorer.searchOverlapping(bytes("CAC"), 3, 2, 2,
+				CovarianceModelPlacementBands.window(m, 3, new int[]{0, 1}, new int[]{2, 3}, 0));
+			check(result.score==3+Math.max(0, advantage) && result.targetFrom==2 && result.targetTo==2,
+				"Literal alternative scores select the unique A interval");
+			check(result.contacts==(advantage>0 ? 1 : 0),
+				"A losing or later tied child's contact must not contaminate the first winning path");
+		}
 	}
 	private static ArrayList<Derivation> enumerate(CovarianceModel m, int v, int budget){
 		assert(budget>=0):"Generative enumeration tracks remaining emitted length";
