@@ -72,6 +72,8 @@ public final class GradeNcrnaReference{
 				overlap=Float.parseFloat(b);
 			}else if(a.equals("inexact")){
 				includeInexact=Parse.parseBoolean(b);
+			}else if(a.equals("typed")){
+				typed=Parse.parseBoolean(b);
 			}else if(a.equals("restrictreference")){
 				restrictReference=Parse.parseBoolean(b);
 			}else if(a.equals("subtypes")){
@@ -93,6 +95,7 @@ public final class GradeNcrnaReference{
 		require(Tools.testInputFiles(false, true, input, reference, familymap), "Grading manifests and family map must be readable");
 		require(subtypes==null ? witnesses==null && events==null : witnesses!=null && events!=null,
 			"Subtype reporting requires subtypes= mapping, witnesses= and events= together");
+		require(!typed || subtypes==null, "Typed saved-GFF grading and optional subtype evidence are separate modes");
 		if(subtypes!=null){
 			require(Tools.testInputFiles(false, true, subtypes, witnesses, events), "Subtype mapping and evidence sidecars must be readable");
 		}
@@ -119,7 +122,7 @@ public final class GradeNcrnaReference{
 
 	private void process(final Timer timer){
 		final Rule[] rules=loadRules(familymap);
-		final NcrnaReferenceCalls reader=new NcrnaReferenceCalls(rules);
+		final NcrnaReferenceCalls reader=new NcrnaReferenceCalls(rules, typed);
 		final ArrayList<Binding> referencePopulation=loadManifest(reference);
 		final ArrayList<Binding> queries=loadManifest(input);
 		for(final Binding binding:referencePopulation){checkBindingOutputs(binding);}
@@ -153,16 +156,28 @@ public final class GradeNcrnaReference{
 			}
 			stats.included|=rule.include;
 		}
+		if(typed){
+			for(final String family:NcrnaReferenceCalls.typedFamilies()){
+				Stats stats=byFamily.get(family);
+				require(stats==null || stats.included, "Typed RNA cannot share a canonical family with an excluded generic rule: "+family);
+				if(stats==null){
+					stats=new Stats(family);
+					byFamily.put(family, stats);
+					families.add(stats);
+				}
+				stats.included=true;
+			}
+		}
 		try(Output raw=new Output(prefix+".raw.tsv"); Output inputs=new Output(prefix+".inputs.tsv");
 			Output inexactRaw=includeInexact ? new Output(prefix+INEXACT_SUFFIXES[0]) : null;
 			Output inexactInputs=includeInexact ? new Output(prefix+INEXACT_SUFFIXES[1]) : null;
 			Output selection=restrictReference ? new Output(prefix+".selection.tsv") : null;
 			Output subtypeRaw=subtypeGrade==null ? null : new Output(prefix+NcrnaSubtypeGrade.SUFFIXES[0]);
 			Output subtypeSupport=subtypeGrade==null ? null : new Output(prefix+NcrnaSubtypeGrade.SUFFIXES[1])){
-			raw.writer.println(RAW_HEADER);
-			inputs.writer.println(INPUT_HEADER);
+			raw.writer.println(typed ? RAW_HEADER+TYPED_RAW_COLUMNS : RAW_HEADER);
+			inputs.writer.println(typed ? INPUT_HEADER+"\tprojected_typed" : INPUT_HEADER);
 			if(includeInexact){
-				inexactRaw.writer.println(RAW_HEADER);
+				inexactRaw.writer.println(typed ? RAW_HEADER+TYPED_RAW_COLUMNS : RAW_HEADER);
 				inexactInputs.writer.println(INEXACT_HEADER);
 			}
 			if(subtypeGrade!=null){
@@ -245,14 +260,17 @@ public final class GradeNcrnaReference{
 			if(matched<0){buffer.append('.');}
 			else{buffer.append(queries.calls.get(original.get(matched)).line);}
 			buffer.append("\t.\t.\t.\t");
-			field(row.model==null ? "." : row.model).append("\t.\t.\n");
+			field(row.model==null ? "." : row.model).append("\t.\t.");
+			finishRaw(".", ".");
 			flush(raw);
 		}
 		field(ref.id).tab();
 		field(ref.fasta).tab();
 		field(query.gff).tab();
 		field(ref.gff).tab().append(queries.features).tab().append(queries.cds).tab().append(queries.trna)
-			.tab().append(queries.rrna).tab().append(queries.included).tab().append(queries.excluded).nl();
+			.tab().append(queries.rrna).tab().append(queries.included).tab().append(queries.excluded);
+		if(typed){buffer.tab().append(queries.projectedTyped);}
+		buffer.nl();
 		flush(inputOutput);
 		if(includeInexact){gradeInexact(ref.id, rows, queries.calls, selected, original, truth, masks, match, inexactRaw, inexactInputs);}
 		if(subtypeGrade!=null){subtypeGrade.grade(ref.id, rows, queries.calls, overlap, subtypeRaw, subtypeSupport);}
@@ -297,7 +315,8 @@ public final class GradeNcrnaReference{
 			if(ci<0){buffer.append('.');}
 			else{buffer.append(calls.get(original.get(ci)).line);}
 			buffer.append("\t.\t.\t.\t");
-			field(row.model==null ? "." : row.model).append("\t.\t.\n");
+			field(row.model==null ? "." : row.model).append("\t.\t.");
+			finishRaw(".", ".");
 			flush(raw);
 		}
 		for(int i=0; i<families.size(); i++){
@@ -394,12 +413,24 @@ public final class GradeNcrnaReference{
 			final boolean minus=call.locus.strand=='-';
 			final int d5=minus ? truth.stop-call.locus.stop : call.locus.start-truth.start;
 			final int d3=minus ? truth.start-call.locus.start : call.locus.stop-truth.stop;
-			buffer.append(d5).tab().append(d3).nl();
+			buffer.append(d5).tab().append(d3);
 			if(d5==0){stats.exact5++;}
 			if(d3==0){stats.exact3++;}
 			if(d5==0 && d3==0){stats.exactBoth++;}
-		}else{buffer.append(".\t.\n");}
+		}else{buffer.append(".\t.");}
+		finishRaw(call.nativeType, call.reportedFamily);
 		flush(out);
+	}
+
+	/** Opt-in attribution columns never alter legacy raw schema or matching. */
+	private void finishRaw(final String nativeType, final String reportedFamily){
+		assert(buffer.length()>0) : "Attribution follows a completed query/reference raw row";
+		if(typed){
+			buffer.tab();
+			field(nativeType).tab();
+			field(reportedFamily);
+		}
+		buffer.nl();
 	}
 
 	/** Common raw-row prefix; every column after this is supplied by its role writer. */
@@ -558,7 +589,7 @@ public final class GradeNcrnaReference{
 	private String input, reference, familymap, prefix;
 	private String subtypes, witnesses, events;
 	private float overlap=.5f;
-	private boolean restrictReference, includeInexact;
+	private boolean restrictReference, includeInexact, typed;
 	private final PrintStream outstream;
 	private final NcrnaReferenceGff codec=new NcrnaReferenceGff();
 	private final ByteBuilder buffer=new ByteBuilder();
@@ -573,6 +604,7 @@ public final class GradeNcrnaReference{
 	public static final String RULE_HEADER="family\tmodel_prefix\tdisplay_label\tinclude";
 	public static final String RAW_HEADER="input_id\trole\tfamily\tseqid\tstart\tstop\tstrand\toutcome\treference_id\tquery_line\tmatched_reference_id\tmatched_query_line\tmask_reference_id\tduplicate\tscored_eligible\tmodel\td5\td3";
 	public static final String INPUT_HEADER="input_id\tfasta\tquery_gff\treference_gff\tfeatures\tcds\ttrna\trrna\tincluded_queries\texcluded_queries";
+	public static final String TYPED_RAW_COLUMNS="\tnative_type\treported_family";
 	public static final String SUMMARY_HEADER="family\tinputs\tTP\tFP\tFN\tscored_references\tmasked_references\tmasked_calls\tduplicate_queries\texcluded_queries\texact_5prime\texact_3prime\texact_both\tprecision\trecall\toverlap\tqualification";
 	public static final String SELECTION_HEADER="record\tinput_id\tfamily\tretained_inputs\tomitted_inputs\tscored_kept\tmasked_kept\tscored_omitted\tmasked_omitted\tqualification";
 	private static final String[] SUFFIXES={".raw.tsv", ".inputs.tsv", ".summary.tsv", ".selection.tsv"};

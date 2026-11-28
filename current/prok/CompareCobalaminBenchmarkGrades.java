@@ -1,5 +1,6 @@
 package prok;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.Locale;
 
@@ -47,6 +48,10 @@ public final class CompareCobalaminBenchmarkGrades{
 		try{
 			for(final String arg:pp.args){
 				if(arg.equalsIgnoreCase("mode=report")){
+					for(final String option:pp.args){
+						require(!Parse.splitOnFirst(option, '=')[0].equalsIgnoreCase("family"),
+							"family= is supported by normalized comparison, not the cobalamin-only mode=report presentation");
+					}
 					new CobalaminBoundaryReport(pp.args).process();
 					return;
 				}
@@ -61,7 +66,8 @@ public final class CompareCobalaminBenchmarkGrades{
 		for(final String arg:args){
 			final String[] split=Parse.splitOnFirst(arg, '=');
 			final String a=split[0].toLowerCase(Locale.ROOT), b=split.length>1 ? split[1] : null;
-			if(a.equals("subset")){subset=b.split(",");}
+			if(a.equals("family")){family=b;}
+			else if(a.equals("subset")){subset=b.split(",");}
 			else if(a.equals("changesonly")){changesOnly=Parse.parseBoolean(b);}
 			else if(a.equals("radius")){radius=NcrnaNumbers.intValue(a, b);}
 			else if(a.equals("trace")){trace=b;}
@@ -77,6 +83,10 @@ public final class CompareCobalaminBenchmarkGrades{
 		prefixes[0]=parser.in1;
 		prefixes[1]=parser.in2;
 		out=parser.out1;
+		require(family!=null && family.matches("[A-Za-z0-9][A-Za-z0-9_.-]*"), "family requires the exact canonical family used for export");
+		cobalamin=family.equals("cobalamin");
+		require(cobalamin || !changesOnly && subset==null && trace==null && bindings==null && replayMargins==null,
+			"Other families support normalized union comparison; changesonly, subset and replay remain cobalamin-only");
 		require(prefixes[0]!=null && prefixes[1]!=null && out!=null && !parser.overwrite && !parser.append
 			&& parser.maxReads<0 && parser.samplerate==1, "Supply complete in1/in2 normalized grade prefixes and fresh out=prefix");
 		for(final String prefix:prefixes){
@@ -110,6 +120,9 @@ public final class CompareCobalaminBenchmarkGrades{
 	/*--------------------------------------------------------------*/
 
 	private void process(){
+		for(int side=0; side<2; side++){
+			if(!cobalamin || new File(prefixes[side]+".family.tsv").exists()){readFamily(side);}
+		}
 		if(subset!=null){
 			require(subset.length==3, "Subset membership requires all three SAME-GENERATION selected consensus files");
 			for(final String path:subset){
@@ -139,6 +152,17 @@ public final class CompareCobalaminBenchmarkGrades{
 		}
 		write();
 		if(replay!=null){replay.write(out);}
+	}
+
+	/** A family identity receipt binds empty-query exports as well as populated ones. */
+	private void readFamily(final int side){
+		try(Input in=input(side, ".family.tsv", "#NCRNA_NORMALIZED_FAMILY_V1")){
+			final byte[] row=in.reader.nextLine();
+			require(row!=null, "Generic normalized export lacks its family declaration");
+			p.set(row);
+			require(p.terms()==2 && p.termEquals("family", 0) && p.termEquals(family, 1)
+				&& in.reader.nextLine()==null, "Both normalized exports must declare the requested family exactly once");
+		}
 	}
 
 	private void readGenomes(final int side){
@@ -256,21 +280,25 @@ public final class CompareCobalaminBenchmarkGrades{
 			Output inputs=new Output(out+".genomes.tsv"); Output lengths=new Output(out+".lengths.tsv");
 			Output callLengths=new Output(out+".call_lengths.tsv");
 			Output paired=radius<0 ? null : new Output(out+".paired_loci.tsv")){
-			loci.writer.println("input_id\treference_id\tseqid\tstart\tstop\tstrand\tchange\tpresence_class\tbaseline_member\tbaseline_model\tbaseline_model_in_subset\tcandidate_member\tcandidate_model");
-			overlaps.writer.println("input_id\treference_id\tchange\tside\temitted_member\tmodel\tcall_start\tcall_stop\tcall_outcome\tassigned_reference\tintersection_bp\treference_bp\tcall_bp\tfraction_reference\tfraction_call\tgeometry");
+			final String locusHeader="input_id\treference_id\tseqid\tstart\tstop\tstrand\tchange\tpresence_class\tbaseline_member\tbaseline_model\tbaseline_model_in_subset\tcandidate_member\tcandidate_model";
+			loci.writer.println(cobalamin ? locusHeader : locusHeader.replace("baseline_member", "baseline_family_union").replace("candidate_member", "candidate_family_union"));
+			overlaps.writer.println(cohortHeader("input_id\treference_id\tchange\tside\temitted_member\tmodel\tcall_start\tcall_stop\tcall_outcome\tassigned_reference\tintersection_bp\treference_bp\tcall_bp\tfraction_reference\tfraction_call\tgeometry"));
 			inputs.writer.println("input_id\tbaseline_calls\tcandidate_calls\tbaseline_matched\tcandidate_matched\traw_call_presence\tscored_detection_presence");
-			lengths.writer.println(LENGTH_VERSION);
-			lengths.writer.println("side\tinput_id\temitted_member\tmodel\toutcome\treference_id\treference_status\tcall_bp\treference_bp\tintersection_bp\tcall_to_reference_length\tqualification");
-			callLengths.writer.println(CALL_LENGTH_VERSION);
-			callLengths.writer.println("side\tinput_id\tseqid\tstart\tstop\tstrand\temitted_member\tmodel\toutcome\tcall_bp\treference_overlap_pairs\tqualification");
-			if(paired!=null){paired.writer.println(PAIRED_LOCI_HEADER);}
+			lengths.writer.println(version(LENGTH_VERSION));
+			lengths.writer.println(cohortHeader("side\tinput_id\temitted_member\tmodel\toutcome\treference_id\treference_status\tcall_bp\treference_bp\tintersection_bp\tcall_to_reference_length\tqualification"));
+			callLengths.writer.println(version(CALL_LENGTH_VERSION));
+			callLengths.writer.println(cohortHeader("side\tinput_id\tseqid\tstart\tstop\tstrand\temitted_member\tmodel\toutcome\tcall_bp\treference_overlap_pairs\tqualification"));
+			if(paired!=null){paired.writer.println(cobalamin ? PAIRED_LOCI_HEADER
+				: PAIRED_LOCI_HEADER.replace("off_member\ton_member", "off_family_union\ton_family_union"));}
 			for(final Reference ref:references){
 				if(!ref.scored){continue;}
 				final Query before=ref.winners[0], after=ref.winners[1];
 				if(before!=null && after!=null){
 					retained++;
-					labels[member(before.member)][member(after.member)]++;
-					if(!before.member.equals(after.member)){switches++;}
+					if(cobalamin){
+						labels[member(before.member)][member(after.member)]++;
+						if(!before.member.equals(after.member)){switches++;}
+					}
 					if(paired!=null){paired(ref, before, after, paired);}
 					continue;
 				}
@@ -282,7 +310,9 @@ public final class CompareCobalaminBenchmarkGrades{
 				for(final Query query:ref.genome.queries(loss ? 1 : 0)){if(intersection(ref, query)>0){present=true;}}
 				if(loss && !present){absent++;}
 				buffer.clear().append(ref.genome.id).tab().append(ref.id).tab().append(ref.seqid).tab().append(ref.start).tab().append(ref.stop)
-					.tab().append(ref.strand).tab().append(change).tab().append(present ? "OVERLAPPING_CLAN_CALL_PRESENT" : "NO_OVERLAPPING_CLAN_CALL").tab();
+					.tab().append(ref.strand).tab().append(change)
+					.tab().append(present ? (cobalamin ? "OVERLAPPING_CLAN_CALL_PRESENT" : "OVERLAPPING_FAMILY_CALL_PRESENT")
+						: cobalamin ? "NO_OVERLAPPING_CLAN_CALL" : "NO_OVERLAPPING_FAMILY_CALL").tab();
 				winner(buffer, before);
 				buffer.tab().append(before==null || subset==null ? "NA" : kept.contains(modelId(before.model)) ? "true" : "false").tab();
 				winner(buffer, after);
@@ -326,23 +356,25 @@ public final class CompareCobalaminBenchmarkGrades{
 			}
 		}
 		try(Output summary=new Output(out+".summary.tsv")){
-			summary.writer.println(SUMMARY_VERSION);
+			summary.writer.println(version(SUMMARY_VERSION));
 			summary.writer.println(SUMMARY_HEADER);
 			count(summary, "graded_scored_references", "RETAINED", retained, "UNCHANGED_ONE_TO_ONE_MATCHES");
 			count(summary, "graded_scored_references", "LOST", lost, "UNCHANGED_ONE_TO_ONE_MATCHES");
 			count(summary, "graded_scored_references", "GAINED", gained, "UNCHANGED_ONE_TO_ONE_MATCHES");
 			count(summary, "lost_references_without_any_candidate_overlap", "LOST", absent, "ADD_BACK_ELIGIBLE_PRESENCE_CLASS_ONLY");
-			count(summary, "retained_references_with_changed_emitted_member", "RETAINED", switches, "LABEL_SWITCH_NOT_SUBTYPE_TRUTH");
+			if(cobalamin){count(summary, "retained_references_with_changed_emitted_member", "RETAINED", switches, "LABEL_SWITCH_NOT_SUBTYPE_TRUTH");}
 			for(int i=0; i<2; i++){
 				for(int state=0; state<PRESENCE.length; state++){
-					count(summary, i==0 ? "genomes_with_any_clan_call" : "genomes_with_scored_reference_detection",
+					count(summary, i==0 ? (cobalamin ? "genomes_with_any_clan_call" : "genomes_with_any_family_call") : "genomes_with_scored_reference_detection",
 						PRESENCE[state], presence[i][state], "GENOME_PRESENCE_NOT_LOCUS_RECALL");
 				}
 			}
-			for(int before=0; before<3; before++){
-				for(int after=0; after<3; after++){
-					count(summary, MEMBERS[before]+"_to_"+MEMBERS[after], "RETAINED", labels[before][after],
-						"RETAINED_REFERENCE_EMITTED_LABELS_NOT_SUBTYPE_TRUTH");
+			if(cobalamin){
+				for(int before=0; before<3; before++){
+					for(int after=0; after<3; after++){
+						count(summary, MEMBERS[before]+"_to_"+MEMBERS[after], "RETAINED", labels[before][after],
+							"RETAINED_REFERENCE_EMITTED_LABELS_NOT_SUBTYPE_TRUTH");
+					}
 				}
 			}
 		}
@@ -367,7 +399,7 @@ public final class CompareCobalaminBenchmarkGrades{
 		if(replay!=null){replay.pair(after.trace, ref.id, cohort, ref.start, ref.stop, a5, a3);}
 		for(int end=0; end<2; end++){
 			final long a=end==0 ? a5 : a3, z=end==0 ? z5 : z3;
-			pairedStats[cohort][end].add(a, z, radius, changedLabel);
+			if(cobalamin){pairedStats[cohort][end].add(a, z, radius, changedLabel);}
 			pairedStats[3][end].add(a, z, radius, changedLabel);
 		}
 		output.writer.print(buffer.clear().append(ref.genome.id).tab().append(ref.id).tab().append(ref.seqid).tab().append(ref.strand)
@@ -379,15 +411,15 @@ public final class CompareCobalaminBenchmarkGrades{
 	private void writePairedSummary(){
 		try(Output output=new Output(out+".paired_endpoints.tsv"); Output near=new Output(out+".paired_near_endpoints.tsv");
 			Output population=new Output(out+".paired_population.tsv"); Output details=new Output(out+".paired_details.tsv")){
-			output.writer.println(PAIRED_VERSION);
+			output.writer.println(version(PAIRED_VERSION));
 			output.writer.println(PAIRED_HEADER);
-			near.writer.println(NEAR_VERSION);
+			near.writer.println(version(NEAR_VERSION));
 			near.writer.println(NEAR_HEADER);
-			population.writer.println(POPULATION_VERSION);
+			population.writer.println(version(POPULATION_VERSION));
 			population.writer.println(POPULATION_HEADER);
-			details.writer.println(DETAILS_VERSION);
+			details.writer.println(version(DETAILS_VERSION));
 			details.writer.println(DETAILS_HEADER);
-			for(int cohort=0; cohort<4; cohort++){
+			for(int cohort=(cobalamin ? 0 : 3); cohort<4; cohort++){
 				for(int end=0; end<2; end++){
 					final PairStats stats=pairedStats[cohort][end];
 					require(stats.n==stats.better+stats.worse+stats.unchanged && stats.worse==stats.worseWithin+stats.worseBeyond
@@ -402,8 +434,9 @@ public final class CompareCobalaminBenchmarkGrades{
 					rms(buffer.tab(), stats.onSquares, stats.n);
 					buffer.tab().append(stats.better).tab().append(stats.worse).tab().append(stats.unchanged)
 						.tab().append(stats.worseWithin).tab().append(stats.worseBeyond);
-					output.writer.print(buffer.tab().append(stats.switches)
-						.append("\tSAME_SCORED_REFERENCE_IDS_OFF_EMITTED_MEMBER_COHORT_FULL_RMS_PRIMARY\n"));
+					output.writer.print(appendSwitches(buffer.tab(), stats.switches)
+						.append(cobalamin ? "\tSAME_SCORED_REFERENCE_IDS_OFF_EMITTED_MEMBER_COHORT_FULL_RMS_PRIMARY\n"
+							: "\tSAME_SCORED_REFERENCE_IDS_FAMILY_UNION_FULL_RMS_PRIMARY\n"));
 					if(stats.withinN>0){
 						pairKey(cohort, end, stats.n).tab().append(stats.withinN).tab();
 						rms(buffer, stats.offWithinSquares, stats.withinN);
@@ -427,13 +460,16 @@ public final class CompareCobalaminBenchmarkGrades{
 			.tab().append(stats.offWithin3).tab().append(stats.onWithin3).tab();
 		rms(buffer, stats.offSquares, stats.n);
 		rms(buffer.tab(), stats.onSquares, stats.n);
-		output.writer.print(buffer.tab().append(stats.offAbsolute/stats.n, 8).tab().append(stats.onAbsolute/stats.n, 8)
-			.tab().append(stats.moved).tab().append(stats.better).tab().append(stats.worse).tab().append(stats.unchanged)
-			.tab().append(stats.switches).append("\tSAME_SCORED_REFERENCE_IDS_OFF_MEMBER_COHORT_NO_REMATCHING\n"));
+		buffer.tab().append(stats.offAbsolute/stats.n, 8).tab().append(stats.onAbsolute/stats.n, 8)
+			.tab().append(stats.moved).tab().append(stats.better).tab().append(stats.worse).tab().append(stats.unchanged).tab();
+		output.writer.print(appendSwitches(buffer, stats.switches).append(cobalamin
+			? "\tSAME_SCORED_REFERENCE_IDS_OFF_MEMBER_COHORT_NO_REMATCHING\n"
+			: "\tSAME_SCORED_REFERENCE_IDS_FAMILY_UNION_NO_REMATCHING\n"));
 	}
+	private ByteBuilder appendSwitches(final ByteBuilder dest, final long count){return cobalamin ? dest.append(count) : dest.append("NA");}
 	private ByteBuilder pairKey(final int cohort, final int end, final long n){
 		assert(cohort>=0 && cohort<4 && end>=0 && end<2) : "Paired statistics use the three OFF-member cohorts plus their clan and two ends";
-		return buffer.clear().append(cohort<3 ? MEMBERS[cohort] : "cobalamin").tab().append(end==0 ? "5prime" : "3prime")
+		return buffer.clear().append(cohort<3 ? memberLabel(cohort) : family).tab().append(end==0 ? "5prime" : "3prime")
 			.tab().append(radius).tab().append(n);
 	}
 	private static void rms(final ByteBuilder buffer, final double squares, final long count){
@@ -459,10 +495,17 @@ public final class CompareCobalaminBenchmarkGrades{
 		return Math.max(0, Math.min(ref.stop, query.stop)-Math.max(ref.start, query.start)+1);
 	}
 	private static int presence(final long before, final long after){return before>0 ? after>0 ? 0 : 1 : after>0 ? 2 : 3;}
-	private static int member(final String value){
+	private int member(final String value){
+		if(!cobalamin){
+			require(value.equals(family), "Generic normalized query must retain the selected family union label");
+			return 0;
+		}
 		for(int i=0; i<MEMBERS.length; i++){if(value.equals(MEMBERS[i])){return i;}}
 		throw new IllegalArgumentException("Unknown emitted member in a normalized grade: "+value);
 	}
+	private String memberLabel(final int index){return cobalamin ? MEMBERS[index] : family;}
+	private String cohortHeader(final String header){return cobalamin ? header : header.replace("emitted_member", "family_union");}
+	private String version(final String cobalaminVersion){return cobalamin ? cobalaminVersion : cobalaminVersion.replace("COBALAMIN", "NCRNA");}
 	/** Native FASTA IDs exclude descriptions. Grade fields escape literal percent
 	 * once; native library headers reject control characters, so no control escape
 	 * can belong to a valid source model identifier. Full report text stays intact.
@@ -472,7 +515,7 @@ public final class CompareCobalaminBenchmarkGrades{
 		final String path=prefixes[side]+suffix;
 		final Input in=new Input(path);
 		try{
-			RrnaResourceIO.header(in.reader, header, path);
+			RrnaResourceIO.header(in.reader, cohortHeader(header), path);
 			return in;
 		}
 		catch(RuntimeException | Error failure){
@@ -550,6 +593,8 @@ public final class CompareCobalaminBenchmarkGrades{
 		CobalaminBoundaryReplay.Call trace;
 	}
 	private String out;
+	private String family="cobalamin";
+	private boolean cobalamin=true;
 	private boolean changesOnly;
 	private String trace, bindings;
 	private CobalaminBoundaryReplay replay;

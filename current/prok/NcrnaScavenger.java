@@ -726,6 +726,12 @@ public class NcrnaScavenger {
 	public long kmerHitCount(){return kmerHitCount;}
 	/** Windows scheduled across both passes, before the seed-count and model filters. */
 	public long windowCount(){return windowCount;}
+	public long windowBases(){return windowBases;}
+	private void recordWindow(final int start, final int stop){
+		assert(start>=0 && stop>=start) : "Scheduled-window statistics count the physical post-claim interval exactly once";
+		windowCount++;
+		windowBases+=(long)stop-start+1;
+	}
 	public long boundaryNanos(){return boundaryNanos;}
 	public boolean hasPerModelBoundaryResources(){return boundaryNetsByModel!=null;}
 	boolean endpointUsesPerSiteScrabble(){return NcrnaBoundaryScorer.usesPerSiteScrabble(boundaryFeatureVersion);}
@@ -767,7 +773,16 @@ public class NcrnaScavenger {
 	}
 	/** Only explicitly configured key-aware nonvoting window builders opt in.
 	 * The ordinary shared scanner and mutable family resources remain unchanged. */
-	protected boolean requiresWindowSeedKeys(){return false;}
+	protected boolean requiresWindowSeedKeys(){return keyBounds!=null;}
+
+	/** Configure immutable resources once before any query; the ordinary no-file route stays unchanged. */
+	public void setKeyBounds(final NcrnaOverlapWindowBuilder.Caps caps){
+		if(caps==null || caps.chainCeiling<=0 || keyBounds!=null || windowCount!=0 || kLong!=17){
+			throw new IllegalArgumentException("Per-key windows require one positive-ceiling K17 table before queries: "+family);
+		}
+		keyBounds=caps;
+		keyWindowBuilder=new NcrnaOverlapWindowBuilder();
+	}
 
 	/** Runs the unchanged family-local scavenger using a hit stream produced by
 	 * the shared 17-mer front end. */
@@ -815,7 +830,7 @@ public class NcrnaScavenger {
 				hitPositions,hitKeys,called,results);
 		}else{
 			for(int[] original : windows){
-				windowCount++;
+				recordWindow(original[0], original[1]);
 				scheduledWindow(original);
 				if(workloadSink!=null){workloadSink.scheduledWindow(name, strand, 1, original[0], original[1]);}
 				Orf orf=alignWindow(name, bases, strand, 1, original[0], original[1],
@@ -841,7 +856,7 @@ public class NcrnaScavenger {
 						new ArrayList<int[]>(called),nearHits,nearKeys,called,results);
 				}else{
 					for(int[] original : pass2Windows){
-						windowCount++;
+						recordWindow(original[0], original[1]);
 						scheduledWindow(original);
 						if(workloadSink!=null){workloadSink.scheduledWindow(name, strand, 2, original[0], original[1]);}
 						Orf orf=alignWindow(name, bases, strand, 2, original[0], original[1], windowSource(original), nearHits, nearKeys);
@@ -864,7 +879,7 @@ public class NcrnaScavenger {
 		for(int[] original:windows){
 			final ArrayList<int[]> pending=new ArrayList<int[]>(1);pending.add(original);
 			for(int[] w:subtractClaimed(pending,claimSnapshot,bases.length)){
-				windowCount++;
+				recordWindow(w[0], w[1]);
 				if(workloadSink!=null){workloadSink.scheduledWindow(name,strand,pass,w[0],w[1]);}
 				final Orf orf=alignWindow(name,bases,strand,pass,w[0],w[1],windowSource(w),hitPositions,hitKeys);
 				if(DEBUG){System.err.println("DEBUG alignWindow("+w[0]+","+w[1]+") -> "+
@@ -895,7 +910,7 @@ public class NcrnaScavenger {
 				final ArrayList<int[]> pending=new ArrayList<int[]>(1);
 				pending.add(new int[]{lo,hi,WINDOW_JOINED});
 				for(int[] w:subtractClaimed(pending,claimSnapshot,bases.length)){
-					windowCount++;
+					recordWindow(w[0], w[1]);
 					if(workloadSink!=null){workloadSink.scheduledWindow(name,strand,1,w[0],w[1]);}
 					final Orf orf=alignJoinedWindow(name,bases,strand,w[0],w[1],proposal.model,hitPositions,hitKeys);
 					if(orf!=null){candidates.add(orf);}
@@ -1044,14 +1059,7 @@ public class NcrnaScavenger {
 	}
 
 	private long[] findKmerHitKeys(byte[] bases, int[] hits){
-		final long[] keys=new long[hits.length];
-		final byte[] bton=AminoAcid.baseToNumber;
-		for(int i=0; i<hits.length; i++){
-			final int start=hits[i]-kLong/2; long key=0;
-			for(int j=0; j<kLong; j++){key=(key<<2)|bton[bases[start+j]];}
-			keys[i]=key;
-		}
-		return keys;
+		return NcrnaOverlapWindowBuilder.hitKeys(bases, hits, kLong);
 	}
 
 	/** Restricts vote observation to generated proposals, before claims or endpoint voting.
@@ -1092,6 +1100,14 @@ public class NcrnaScavenger {
 	/** One window preparation seam for both passes; opt-in changes no legacy family. */
 	public ArrayList<int[]> prepareCandidateWindows(int[] positions, long[] keys, int seqLen){
 		initializeMitoMinimums();
+		if(keyBounds!=null){
+			int edge=physicalEdgeMinLen;
+			if(prok16sPartialMinLen>0){edge=edge==0 ? prok16sPartialMinLen : Math.min(edge, prok16sPartialMinLen);}
+			// The existing mitochondrial exception tests inclusive width, while the ordinary floor tests stop-start.
+			final int minimum=mitoMinimum>0 ? Math.max(1, Math.min(minLen, mitoMinimum-1)) : minLen;
+			return keyWindowBuilder.build(positions, keys, seqLen, windowPad, keyBounds.union,
+				minimum, edge, keyBounds, keyBounds.chainCeiling, true);
+		}
 		if(collapsedWindowPad<0 || collapsedWindowPad>0 && (voteWindows || voteBeforePadding
 				|| 2L*collapsedWindowPad+kLong<minLen)){
 			throw new IllegalArgumentException("Collapsed-window padding requires nonvoting windows and the "+
@@ -1278,7 +1294,7 @@ public class NcrnaScavenger {
 		ArrayList<int[]> result=new ArrayList<>();
 		for(int[] w : windows){
 			ArrayList<int[]> segments=new ArrayList<>();
-			segments.add(new int[]{w[0], w[1], windowSource(w)});
+			segments.add(claimPart(w, w[0], w[1]));
 			for(int[] c : claimed){
 				ArrayList<int[]> next=new ArrayList<>();
 				for(int[] seg : segments){
@@ -1287,8 +1303,8 @@ public class NcrnaScavenger {
 						next.add(seg);//no overlap with this claim -- unchanged
 						continue;
 					}
-					if(lo<c[0]){next.add(new int[]{lo, c[0]-1, windowSource(seg)});}//left remainder survives
-					if(hi>c[1]){next.add(new int[]{c[1]+1, hi, windowSource(seg)});}//right remainder survives
+					if(lo<c[0]){next.add(claimPart(seg, lo, c[0]-1));}//left remainder survives
+					if(hi>c[1]){next.add(claimPart(seg, c[1]+1, hi));}//right remainder survives
 					//neither branch fires -> claim fully covers this segment, it's consumed
 				}
 				segments=next;
@@ -1301,6 +1317,10 @@ public class NcrnaScavenger {
 			}
 		}
 		return result;
+	}
+	private int[] claimPart(final int[] window, final int start, final int stop){
+		return keyBounds==null ? new int[]{start, stop, windowSource(window)}
+			: NcrnaOverlapWindowBuilder.part(window, start, stop);
 	}
 
 	/** A claimed interval or an N gap is not an original-contig boundary. */
@@ -3525,7 +3545,9 @@ public class NcrnaScavenger {
 	private int matchedQueryLength;
 	private long alignmentCpuNanos=0, shortlistCpuNanos=0, hbmCpuNanos=0;
 	private long alignedBases=0, hbmScoreCalls=0, hbmBasesScored=0;
-	private long kmerHitCount=0, windowCount=0;
+	private long kmerHitCount=0, windowCount=0, windowBases=0;
+	private NcrnaOverlapWindowBuilder.Caps keyBounds;
+	private NcrnaOverlapWindowBuilder keyWindowBuilder;
 	private long boundaryNanos=0;
 
 	//C3 boundary-precision-NN resources (G11, 2026-08-28) -- boundary5Net==null (this

@@ -54,7 +54,8 @@ public final class ExportCobalaminBenchmarkGrade{
 		for(final String arg:args){
 			final String[] split=Parse.splitOnFirst(arg, '=');
 			final String a=split[0].toLowerCase(Locale.ROOT), b=split.length>1 ? split[1] : null;
-			if(a.equals("legacy")){legacy=Parse.parseBoolean(b);}
+			if(a.equals("family")){family=b;}
+			else if(a.equals("legacy")){legacy=Parse.parseBoolean(b);}
 			else if(a.equals("inexact")){inexact=Parse.parseBoolean(b);}
 			else if(a.equals("mode")){
 				require("export".equals(b) || "members".equals(b), "mode must be export or members");
@@ -73,6 +74,11 @@ public final class ExportCobalaminBenchmarkGrade{
 		}
 		prefix=parser.in1;
 		out=parser.out1;
+		require(family!=null && family.matches("[A-Za-z0-9][A-Za-z0-9_.-]*"), "family requires the exact canonical name from the completed grade");
+		cobalamin=family.equals("cobalamin");
+		require(cobalamin || !legacy && !memberMode && panel==null && timing==null && callerLog==null
+			&& modelFiles==null && modelCounts==null && expectedInputs<0,
+			"Other families support canonical union export; legacy, member summaries, timing and model rosters remain cobalamin-only");
 		require(prefix!=null && out!=null && (!legacy || panel!=null), "Supply in=completed_grade_prefix out=fresh_prefix; legacy=t also requires panel=original_panel.loci.tsv");
 		require(!legacy || !inexact, "inexact=t requires a canonical overlap grade; legacy grades retain their recorded matching");
 		require((timing==null)==(callerLog==null), "Optional timing=GNU_time_triple and callerlog=complete_caller_stderr must be supplied together");
@@ -96,6 +102,7 @@ public final class ExportCobalaminBenchmarkGrade{
 			prefix+(legacy ? ".genomes.tsv" : ".inputs.tsv")), "Completed grade reports must be readable");
 		require(Tools.testOutputFiles(false, false, false, out+".members.tsv", out+".genomes.tsv", out+".matches.tsv",
 			out+".witnesses.tsv", out+".queries.tsv", out+".references.tsv", out+".metrics.tsv"), "Benchmark exports must be fresh");
+		if(!cobalamin){RrnaResourceIO.fresh(out, ".family.tsv");}
 		if(modelFiles!=null || modelCounts!=null || expectedInputs>=0){
 			require(modelFiles!=null && modelFiles.length==3 && modelCounts!=null && modelCounts.length==3
 				&& expectedInputs>0 && !legacy, "Model-win reporting requires three ordered ref=FASTAs, expectedmodels=MAIN,SECOND,THIRD and expectedinputs=N on a canonical grade");
@@ -374,7 +381,7 @@ public final class ExportCobalaminBenchmarkGrade{
 				if(legacy){
 					if(!legacyUnion()){continue;}
 				}else{
-					if(!p.termEquals("cobalamin", 2)){continue;}
+					if(!p.termEquals(family, 2)){continue;}
 					if(p.termEquals("REFERENCE", 1)){
 						final Reference ref=addReference(0, 8, 3, 4, 5, 6, !p.termEquals("DONT_CARE", 7));
 						if(memberMode){
@@ -456,7 +463,7 @@ public final class ExportCobalaminBenchmarkGrade{
 			RrnaResourceIO.header(in.reader, legacy ? LEGACY_SUMMARY : GradeNcrnaReference.SUMMARY_HEADER, path);
 			for(byte[] row; (row=in.reader.nextLine())!=null;){
 				p.set(row);
-				if(legacy ? !legacyUnion() : !p.termEquals("cobalamin", 0)){continue;}
+				if(legacy ? !legacyUnion() : !p.termEquals(family, 0)){continue;}
 				require(!found && p.terms()==(legacy ? 16 : 17), "Exactly one joint union summary must exist");
 				found=true;
 				final long[] sum=new long[4];
@@ -490,7 +497,7 @@ public final class ExportCobalaminBenchmarkGrade{
 			RrnaResourceIO.header(input.reader, GradeNcrnaReference.INEXACT_HEADER, path);
 			for(byte[] line; (line=input.reader.nextLine())!=null;){
 				p.set(line);
-				if(!p.termEquals("cobalamin", 1)){continue;}
+				if(!p.termEquals(family, 1)){continue;}
 				require(!found && p.terms()==19 && p.termEquals("ALL", 0), "Exactly one complete inclusive union summary must exist");
 				found=true;
 				final long[] sum=new long[4];
@@ -524,17 +531,17 @@ public final class ExportCobalaminBenchmarkGrade{
 			Output inputs=new Output(out+".genomes.tsv"); Output counts=new Output(out+".members.tsv");
 			Output allQueries=new Output(out+".queries.tsv"); Output allReferences=new Output(out+".references.tsv")){
 			matches.writer.println("#family\tseqid\tstrand\ttruth_start\ttruth_stop\tcall_start\tcall_stop\td5\td3");
-			witness.writer.println("input_id\treference_id\temitted_member\tmodel\tseqid\tcall_start\tcall_stop\tref_start\tref_stop\tstrand\td5\td3");
-			allQueries.writer.println("input_id\tseqid\tstart\tstop\tstrand\temitted_member\tmodel\toutcome\tscored_eligible\tmatched_reference_id");
+			witness.writer.println(cohortHeader("input_id\treference_id\temitted_member\tmodel\tseqid\tcall_start\tcall_stop\tref_start\tref_stop\tstrand\td5\td3"));
+			allQueries.writer.println(cohortHeader("input_id\tseqid\tstart\tstop\tstrand\temitted_member\tmodel\toutcome\tscored_eligible\tmatched_reference_id"));
 			allReferences.writer.println("input_id\treference_id\tseqid\tstart\tstop\tstrand\tscored");
 			inputs.writer.println("input_id\tcalls\tmatched\tmasked\tunmatched");
-			counts.writer.println("emitted_member\tcalls\tmatched\tmasked\tunmatched_duplicate\tunmatched_other\tqualification");
+			counts.writer.println(cohortHeader("emitted_member\tcalls\tmatched\tmasked\tunmatched_duplicate\tunmatched_other\tqualification"));
 			long exact5=0, exact3=0, both=0;
 			for(final Query query:queries){
 				p.set(query.row);
 				buffer.clear().append(query.genome.id).tab();
 				field(buffer, legacy ? 4 : 3).tab().append(p.parseInt(legacy ? 6 : 4)).tab().append(p.parseInt(legacy ? 7 : 5))
-					.tab().append(strand(legacy ? 8 : 6)).tab().append(MEMBERS[query.member]).tab();
+					.tab().append(strand(legacy ? 8 : 6)).tab().append(memberLabel(query.member)).tab();
 				field(buffer, legacy ? 9 : 15).tab().append(OUTCOMES[query.bucket]).tab();
 				if(legacy){buffer.append("NA");}
 				else{field(buffer, 14);}
@@ -555,9 +562,9 @@ public final class ExportCobalaminBenchmarkGrade{
 				if(d5==0){exact5++;}
 				if(d3==0){exact3++;}
 				if(d5==0 && d3==0){both++;}
-				match(matches, "cobalamin", ref, cs, ce, d5, d3);
-				match(matches, MEMBERS[query.member], ref, cs, ce, d5, d3);
-				buffer.clear().append(ref.genome.id).tab().append(ref.id).tab().append(MEMBERS[query.member]).tab();
+				match(matches, family, ref, cs, ce, d5, d3);
+				if(cobalamin){match(matches, MEMBERS[query.member], ref, cs, ce, d5, d3);}
+				buffer.clear().append(ref.genome.id).tab().append(ref.id).tab().append(memberLabel(query.member)).tab();
 				field(buffer, legacy ? 9 : 15).tab().append(ref.seqid).tab().append(cs).tab().append(ce)
 					.tab().append(ref.start).tab().append(ref.stop).tab().append(ref.strand).tab().append(d5).tab().append(d3).nl();
 				witness.writer.print(buffer);
@@ -571,24 +578,33 @@ public final class ExportCobalaminBenchmarkGrade{
 				final long[] c=genome.counts;
 				inputs.writer.print(buffer.clear().append(genome.id).tab().append(c[0]+c[1]+c[2]+c[3]).tab().append(c[0]).tab().append(c[1]).tab().append(c[2]+c[3]).nl());
 			}
-			for(int member=0; member<3; member++){
+			for(int member=0; member<(cobalamin ? 3 : 1); member++){
 				final long[] c=members[member];
-				counts.writer.print(buffer.clear().append(MEMBERS[member]).tab().append(c[0]+c[1]+c[2]+c[3])
+				counts.writer.print(buffer.clear().append(memberLabel(member)).tab().append(c[0]+c[1]+c[2]+c[3])
 					.tab().append(c[0]).tab().append(c[1]).tab().append(c[2]).tab().append(c[3])
-					.append("\tEMITTED_MEMBER_PARTITION_OF_UNION_OUTCOMES_NOT_SUBTYPE_ACCURACY\n"));
+					.append(cobalamin ? "\tEMITTED_MEMBER_PARTITION_OF_UNION_OUTCOMES_NOT_SUBTYPE_ACCURACY\n"
+						: "\tFAMILY_UNION_OUTCOMES_NO_MEMBER_LABEL_MEASUREMENT\n"));
 			}
 		}
 		try(Output metrics=new Output(out+".metrics.tsv")){
 			final long[] sum=new long[4];
 			for(final long[] member:members){for(int i=0; i<4; i++){sum[i]+=member[i];}}
-			metrics.writer.println("inputs\tscored_references\tmasked_references\tcalls\tmatched\tunmatched\tmissed\tmasked_calls\tduplicate_queries\texact5\texact3\tboth_exact\tprecision\trecall\tqualification\tcpu_user_seconds\tcpu_system_seconds\twall_seconds\talign_rf00174\talign_rf01482\talign_rf01689");
+			metrics.writer.println("inputs\tscored_references\tmasked_references\tcalls\tmatched\tunmatched\tmissed\tmasked_calls\tduplicate_queries\texact5\texact3\tboth_exact\tprecision\trecall\tqualification\tcpu_user_seconds\tcpu_system_seconds\twall_seconds"
+				+(cobalamin ? "\talign_rf00174\talign_rf01482\talign_rf01689" : ""));
 			buffer.clear().append(genomes.size()).tab().append(scoredReferences).tab().append(maskedReferences)
 				.tab().append(queries.size()).tab().append(sum[0]).tab().append(sum[2]+sum[3]).tab().append(missedReferences).tab().append(sum[1])
 				.tab().append(duplicates).tab().append(expected5).tab().append(expected3).tab().append(expectedBoth).tab().append(precision).tab().append(recall)
 				.tab().append(legacy ? "LEGACY_FULL_CM_UNION" : inexact ? "CANONICAL_NEW_CM_UNION_INEXACT" : "CANONICAL_NEW_CM_UNION");
 			for(final String time:times){buffer.tab().append(time);}
-			for(final long value:alignments){buffer.tab();if(value<0){buffer.append("NA");}else{buffer.append(value);}}
+			if(cobalamin){
+				for(final long value:alignments){buffer.tab();if(value<0){buffer.append("NA");}else{buffer.append(value);}}
+			}
 			metrics.writer.print(buffer.nl());
+		}
+		if(!cobalamin){
+			try(Output identity=new Output(out+".family.tsv")){
+				identity.writer.print(buffer.clear().append("#NCRNA_NORMALIZED_FAMILY_V1\nfamily\t").append(family).nl());
+			}
 		}
 	}
 
@@ -620,11 +636,14 @@ public final class ExportCobalaminBenchmarkGrade{
 		return p.termEquals("-", column) ? '-' : '+';
 	}
 	private int member(final int column){
+		if(!cobalamin){return 0;}// The selected biological union is one cohort; no subtype is inferred.
 		for(int i=0; i<MEMBERS.length; i++){
 			if(p.termStartsWith(PREFIXES[i], column)){return i;}
 		}
 		throw new IllegalArgumentException("Unknown emitted cobalamin member: "+p.parseString(column));
 	}
+	private String memberLabel(final int index){return cobalamin ? MEMBERS[index] : family;}
+	private String cohortHeader(final String header){return cobalamin ? header : header.replace("emitted_member", "family_union");}
 	private boolean legacyUnion(){return p.termEquals("FULL_CM", 0) && p.termEquals("union", 1);}
 	private static void require(final boolean valid, final String reason){if(!valid){throw new IllegalArgumentException(reason);}}
 
@@ -683,6 +702,8 @@ public final class ExportCobalaminBenchmarkGrade{
 	private int expectedInputs=-1;
 	private final ArrayList<ModelWins> modelWins=new ArrayList<ModelWins>();
 	private String prefix, out, panel;
+	private String family="cobalamin";
+	private boolean cobalamin=true;
 	private boolean legacy, inexact, memberMode;
 	private String[] memberPrefixes;
 	private long inexactMatches;

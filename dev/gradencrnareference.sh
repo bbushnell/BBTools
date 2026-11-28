@@ -39,6 +39,18 @@ restrictreference=f Default strict mode requires equal complete input population
              original baseline; this flag does not independently prove that claim.
 
 Options:
+typed=f      Opt in to saved native tRNA/rRNA queries as well as generic RNA.
+             Native column-9 tokens tRNA/5S/16S/18S/23S project to the existing
+             tRNA/5S/SSU/SSU/LSU reference families. All four unions are included;
+             generic familymap rules remain explicit. No model is invented for
+             typed rows lacking one. Unknown/conflicting native identities fail.
+             Default/off outputs retain their existing schema and behavior.
+             Typed raw outputs append native_type/reported_family; inputs append
+             projected_typed, already contained in included/excluded_queries.
+             Conservation: features=cds+trna+rrna+included+excluded-projected_typed.
+             Supported for saved GFFs only, not the generic-only live API or
+             optional subtype-evidence mode. This does not establish euk truth
+             or independent member/subtype denominators within a shared union.
 overlap=0.5  Minimum reciprocal overlap for scored matches; must be in (0,1].
              Masks use any positive same-input/family/contig/strand overlap only
              when the call has no eligible scored reference. Exact duplicate

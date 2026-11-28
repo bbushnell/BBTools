@@ -79,6 +79,7 @@ public final class ExportCobalaminBenchmarkGradeTest{
 		inclusive(inputs, raw);
 		winnerCounts();
 		memberOutcomes();
+		genericFamily(inputs, raw, summary);
 		write("bad_offset.inputs.tsv", inputs);
 		write("bad_offset.summary.tsv", summary);
 		write("bad_offset.raw.tsv", raw.replace("two\t4\t-1", "two\t-4\t-1"));
@@ -102,6 +103,51 @@ public final class ExportCobalaminBenchmarkGradeTest{
 				"timing="+path("native.time.tsv"), "callerlog="+path("missing_counter.stderr")});
 		}catch(IllegalArgumentException expected){missingCounter=expected.getMessage().contains("lacks");}
 		check(missingCounter && !new File(path("missing_counter.metrics.tsv")).exists(), "A partial caller log must not become a completed cost report");
+	}
+
+	/** A second family keeps its biological union, literal models and zero-call
+	 * genomes, while unrelated raw families cannot enter its normalized report. */
+	private void genericFamily(final String inputs, final String raw, final String summary) throws Exception{
+		final String selected=raw.replace("\tcobalamin\t", "\tRNaseP\t")
+			.replace("cobalamin_RF00174_one", "rnasep_one").replace("cobalamin_RF01482_two", "rnasep_two")
+			.replace("cobalamin_RF01689_three", "rnasep_three");
+		write("generic.inputs.tsv", inputs);
+		write("generic.raw.tsv", selected+raw.substring(raw.indexOf('\n')+1));
+		write("generic.summary.tsv", summary.replace("cobalamin\t", "RNaseP\t")+summary.substring(summary.indexOf('\n')+1));
+		ExportCobalaminBenchmarkGrade.main(new String[]{"in="+path("generic"), "out="+path("generic.out"), "family=RNaseP"});
+		check(read("generic.out.family.tsv").equals("#NCRNA_NORMALIZED_FAMILY_V1\nfamily\tRNaseP\n"),
+			"Generic exports must bind the selected family even when no queries exist");
+		check(read("generic.out.genomes.tsv").equals(read("canonical.out.genomes.tsv")),
+			"The selected family keeps its exact calls and all three input genomes");
+		check(read("generic.out.matches.tsv").equals("#family\tseqid\tstrand\ttruth_start\ttruth_stop\tcall_start\tcall_stop\td5\td3\n"
+			+"RNaseP\t1:a/shared\t+\t100\t199\t102\t199\t2\t0\n"
+			+"RNaseP\t1:b/shared\t-\t300\t399\t301\t395\t4\t-1\n"),
+			"Generic matches contain one union view, with actual signed offsets and no invented subtype rows");
+		check(read("generic.out.members.tsv").split("\n").length==2
+			&& read("generic.out.members.tsv").contains("\nRNaseP\t4\t2\t1\t0\t1\t")
+			&& !read("generic.out.metrics.tsv").contains("align_rf")
+			&& read("generic.out.queries.tsv").contains("\tfamily_union\t")
+			&& !read("generic.out.queries.tsv").contains("emitted_member"),
+			"A generic union has one cohort and no unrelated cobalamin telemetry columns");
+		for(final String suffix:new String[]{"inputs", "overlap.raw", "overlap.summary"}){
+			write("generic_inexact."+suffix+".tsv", read("inclusive."+suffix+".tsv").replace("cobalamin", "RNaseP"));
+		}
+		ExportCobalaminBenchmarkGrade.main(new String[]{"in="+path("generic_inexact"), "out="+path("generic_inexact.out"), "family=RNaseP", "inexact=t"});
+		check(read("generic_inexact.out.matches.tsv").split("\n").length==3
+			&& read("generic_inexact.out.matches.tsv").contains("RNaseP\t1:a/shared\t+\t100\t199\t55\t105\t-45\t-94\n"),
+			"A second family's recorded inexact witness must survive without rematching or duplicate subtype views");
+		CompareCobalaminBenchmarkGrades.main(new String[]{"in1="+path("generic.out"), "in2="+path("generic.out"),
+			"out="+path("generic.compare"), "family=RNaseP", "radius=3"});
+		check(read("generic.compare.paired_population.tsv").contains("RNaseP\t5prime\t3\t2\t1\n"),
+			"The real normalized comparison must consume generic exports and preserve both matched references");
+		for(final String suffix:new String[]{"inputs", "overlap.raw", "overlap.summary"}){
+			write("generic_empty."+suffix+".tsv", read("axis3."+suffix+".tsv").replace("cobalamin", "RNaseP"));
+		}
+		ExportCobalaminBenchmarkGrade.main(new String[]{"in="+path("generic_empty"), "out="+path("generic_empty.out"), "family=RNaseP", "inexact=t"});
+		check(read("generic_empty.out.family.tsv").equals(read("generic.out.family.tsv"))
+			&& read("generic_empty.out.genomes.tsv").contains("empty\t0\t0\t0\t0\n"),
+			"An empty family still declares its identity and zero-call input population");
+		check(!new File(path("canonical.out.family.tsv")).exists(), "Default cobalamin output file set must remain unchanged");
 	}
 
 	/** The main call overlaps six bases of a100-base reference. Its recorded

@@ -99,6 +99,11 @@ public class GeneCaller extends ProkObject {
 	public void setPGM(GeneModel pgm_){
 		pgm=pgm_;
 		gc=pgm.gc();
+		if(trnaCaller!=null){
+			retiredTrnaWindows+=trnaCaller.windowCount();
+			retiredTrnaBases+=trnaCaller.windowBases();
+			retiredTrnaAlignments+=trnaCaller.workerAlignmentCount();
+		}
 		trnaCaller=null;
 	}
 
@@ -794,6 +799,7 @@ public class GeneCaller extends ProkObject {
 							if(trnaCaller==null){
 								trnaCaller=new TrnaCaller(pgm, trnaLibrary, trnaModels, trnaModelNames);
 								trnaCaller.cmVerifier=cmVerifier;
+								if(trnaKeyBounds!=null){trnaCaller.setKeyBounds(trnaKeyBounds);}
 							}
 							ArrayList<Orf> list;
 							if(TrnaCaller.SCAVENGE_ONLY){
@@ -1105,6 +1111,7 @@ public class GeneCaller extends ProkObject {
 			}
 			scavenger.setCdsStopConstraint(family.cdsStopConstraintFactory.create());
 		}
+		if(family.keyBounds!=null && family.keyBounds.chainCeiling>0){scavenger.setKeyBounds(family.keyBounds);}
 		applyNcrnaProductionControls(scavenger);
 	}
 
@@ -2872,6 +2879,7 @@ public class GeneCaller extends ProkObject {
 	public static byte[][] trnaLibrary;
 	public static consensus.BaseGraph[] trnaModels;
 	public static String[] trnaModelNames;
+	public static NcrnaOverlapWindowBuilder.Caps trnaKeyBounds;
 
 	/** Shared (read-only after CallGenes.loadNcrnaResources), one entry per generic
 	 * ncRNA family with staged resources. Empty if none are staged -- makeRnas skips
@@ -3000,6 +3008,19 @@ public class GeneCaller extends ProkObject {
 		}
 		return counts;
 	}
+	/** Exact post-claim scheduled bases, in the same family order and units as window counts. */
+	public long[] ncrnaWindowBaseCounts(){
+		final long[] counts=new long[ncrnaFamilies.size()];
+		if(ncrnaScavengers!=null){
+			assert(ncrnaScavengers.size()==counts.length) : "Window-base totals retain the loaded family axis until workers finish";
+			for(int i=0; i<counts.length; i++){counts[i]=ncrnaScavengers.get(i).windowBases();}
+		}
+		return counts;
+	}
+	public long trnaWindowCount(){return retiredTrnaWindows+(trnaCaller==null ? 0 : trnaCaller.windowCount());}
+	public long trnaWindowBases(){return retiredTrnaBases+(trnaCaller==null ? 0 : trnaCaller.windowBases());}
+	public long trnaAlignmentCount(){return retiredTrnaAlignments+(trnaCaller==null ? 0 : trnaCaller.workerAlignmentCount());}
+	private long retiredTrnaWindows, retiredTrnaBases, retiredTrnaAlignments;
 
 	/** Generated voted windows across both passes, before claimed-window subtraction; read after worker termination. */
 	long[] ncrnaGeneratedVotedWindowCounts(){return ncrnaGeneratedVoteCounts(false);}

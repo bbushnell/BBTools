@@ -19,10 +19,11 @@ public final class NcrnaFamilyLoader {
 		require(options!=null && resolver!=null, "Explicit load options and resolver required");
 		if(!options.enabled){return null;}//A disabled selection never resolves or opens a resource.
 		final NcrnaFamilyRegistry.Entry p=NcrnaFamilyRegistry.get(familyId);
+		CobalaminCallerResources.Policy callerPolicy=null;
 		if(NcrnaFamilyRegistry.isCobalamin(p.id)){
-			final CobalaminCallerResources.Policy policy=options.cobalaminCallerPolicy!=null ? options.cobalaminCallerPolicy
+			callerPolicy=options.cobalaminCallerPolicy!=null ? options.cobalaminCallerPolicy
 				: CobalaminCallerResources.Policy.find(resolver, options.resources);
-			if(policy!=null){policy.apply(p.id, options, resolver);}
+			if(callerPolicy!=null){callerPolicy.apply(p.id, options, resolver);}
 		}
 		final boolean cm=options.cobalaminCmPolicy!=CobalaminCmEndpointRefiner.OFF;
 		require(options.cobalaminCmPolicy>=CobalaminCmEndpointRefiner.OFF
@@ -194,7 +195,45 @@ public final class NcrnaFamilyLoader {
 			family.boundaryRefinerFactory=CobalaminCmEndpointRefiner.load(family, resolver, options.resources, options.cobalaminCmPolicy, options.cobalaminCmGa);
 			family.boundaryOnRawEndpoints=true;
 		}
+		// Library-only consumers intentionally load no seed-dependent serving resources.
+		final FamilyResourceResolver.Handle bounds=options.seeds ? resolver.optionalKeyBounds(p.id, options.resources) : null;
+		if(bounds!=null){
+			require(seedK==17 && keys!=null, "Per-key windows require the actual loaded forward K17 seed axis: "+p.id);
+			final String boundsMember=p.group==null ? p.id : p.member;
+			final NcrnaOverlapWindowBuilder.Caps caps=memberIdentity ?
+				NcrnaOverlapWindowBuilder.Caps.load(bounds.path, boundsMember, keys.size(), callerPolicy==null ? 99 : callerPolicy.keyPercentile())
+				: NcrnaOverlapWindowBuilder.Caps.loadGeneric(bounds.path, boundsMember, keys.size());
+			caps.validateKeys(keys.toArray());
+			if(NcrnaFamilyRegistry.isCobalamin(p.id)){
+				CobalaminCallerResources.requireLegacyBounds(caps);
+				require(callerPolicy!=null, "Legacy cobalamin bounds require their existing external caller policy: "+p.id);
+			}
+			family.keyBounds=caps;
+		}
 		return family;
+	}
+	/** Bind sibling observations once before workers share these read-only families.
+	 * Standalone families and the independent legacy cobalamin route stay unchanged. */
+	public static void attributeMemberKeys(final ArrayList<NcrnaFamily> families){
+		require(families!=null, "Member attribution must bind the actual loaded family population before workers start");
+		for(final NcrnaFamily family:families){
+			require(family!=null, "A loaded family list cannot contain an absent member");
+			if(family.keyBounds==null){continue;}
+			final NcrnaFamilyRegistry.Entry entry=NcrnaFamilyRegistry.get(family.name);
+			if(entry.group==null || NcrnaFamilyRegistry.isCobalamin(entry.id)){continue;}
+			NcrnaOverlapWindowBuilder.Caps caps=family.keyBounds;
+			for(final NcrnaFamily sibling:families){
+				require(sibling!=null, "A loaded sibling list cannot contain an absent member");
+				if(sibling==family || sibling.keyBounds==null){continue;}
+				if(NcrnaFamilyRegistry.get(sibling.name).group==entry.group){
+					caps=caps.withoutSiblingOnly(sibling.keyBounds);
+				}
+			}
+			assert(caps.unmeasuredKeys==family.keyBounds.unmeasuredKeys
+				&& caps.chainCeiling==family.keyBounds.chainCeiling)
+				: "Sibling attribution must preserve the construction population and chain ceiling used by window geometry";
+			family.keyBounds=caps;
+		}
 	}
 	static LongHashSet loadSeedKeys(String family, int k, FamilyResourceResolver resolver){
 		require(resolver!=null, "Seed-only compatibility loading still requires the unified path resolver");

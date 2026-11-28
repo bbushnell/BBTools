@@ -24,8 +24,14 @@ public final class NcrnaReferenceCalls{
 
 	/** Copies the explicit rule array; immutable rules may be shared between readers. */
 	public NcrnaReferenceCalls(final Rule[] rules_){
+		this(rules_, false);
+	}
+
+	/** Optional saved-GFF projection of native typed RNA; generic rules stay explicit. */
+	public NcrnaReferenceCalls(final Rule[] rules_, final boolean typed_){
 		require(rules_!=null && rules_.length>0, "Query grading requires an explicit family projection");
 		rules=rules_.clone();
+		typed=typed_;
 		for(int i=0; i<rules.length; i++){
 			require(rules[i]!=null, "Query family projection contains a null rule");
 			for(int j=0; j<i; j++){
@@ -41,7 +47,7 @@ public final class NcrnaReferenceCalls{
 	 */
 	public Result read(final String path, final String input){
 		require(input!=null && !input.isEmpty(), "A query file needs exact manifest input identity");
-		final Result result=new Result(input, rules.length);
+		final Result result=result(input);
 		try(Input in=new Input(path)){
 			long lineNumber=0;
 			for(byte[] line=in.reader.nextLine(); line!=null; line=in.reader.nextLine()){
@@ -55,27 +61,34 @@ public final class NcrnaReferenceCalls{
 					result.cds++;
 				}else if(parser.termEquals("tRNA", 2)){
 					result.trna++;
+					if(typed){retain(result, parse(line, lineNumber, path));}
 				}else if(parser.termEquals("rRNA", 2)){
 					result.rrna++;
+					if(typed){retain(result, parse(line, lineNumber, path));}
 				}else{
 					check(parser.termEquals("RNA", 2), "Unknown CallGenes feature type", path, lineNumber);
-					final Call call=parse(line, lineNumber, path);
-					result.calls.add(call);
-					result.ruleCounts[call.ruleIndex]++;
-					if(call.included){result.included++;}
-					else{result.excluded++;}
+					retain(result, parse(line, lineNumber, path));
 				}
 			}
 		}
-		assert(result.features==result.cds+result.trna+result.rrna+result.included+result.excluded)
+		assert(result.features==result.cds+result.trna+result.rrna+result.included+result.excluded-result.projectedTyped)
 			: "Every CallGenes feature must survive in a named query population counter";
 		return result;
+	}
+
+	private static void retain(final Result result, final Call call){
+		assert(result!=null && call!=null) : "Every projected native row retains its original line and population";
+		result.calls.add(call);
+		result.ruleCounts[call.ruleIndex]++;
+		if(!call.nativeType.equals("RNA")){result.projectedTyped++;}
+		if(call.included){result.included++;}
+		else{result.excluded++;}
 	}
 
 	/** Creates the same explicit input population used by the saved-GFF reader. */
 	public Result result(final String input){
 		require(input!=null && !input.isEmpty(), "Live calls require the original manifest input identity");
-		return new Result(input, rules.length);
+		return new Result(input, rules.length+(typed ? TYPED_FAMILIES.length : 0));
 	}
 	/** Parses one borrowed native generic-RNA GFF row without changing population
 	 * counters. Returns the same owned call as read(); non-RNA rows are rejected.
@@ -108,6 +121,7 @@ public final class NcrnaReferenceCalls{
 	public void addReport(final Result result, final int type, final String name,
 			final int start, final int stop, final int strand, final String model, final String family){
 		assert(result!=null) : "Report projection needs an explicitly bound input population";
+		require(!typed, "Typed projection currently supports saved native GFFs only; live projection remains generic-only");
 		result.features++;
 		if(type==ProkObject.CDS){
 			result.cds++;
@@ -154,6 +168,7 @@ public final class NcrnaReferenceCalls{
 
 	/** Whether this explicit query projection includes a scoring family. */
 	public boolean scoresFamily(final String family){
+		if(typed){for(final String name:TYPED_FAMILIES){if(name.equals(family)){return true;}}}
 		for(final Rule rule:rules){if(rule.include && rule.family.equals(family)){return true;}}
 		return false;
 	}
@@ -210,6 +225,10 @@ public final class NcrnaReferenceCalls{
 
 	/** Parses borrowed row bytes, allocating only strings retained by the query row. */
 	private Call parse(final byte[] line, final long lineNumber, final String path){
+		final boolean generic=parser.termEquals("RNA", 2);
+		final boolean trna=parser.termEquals("tRNA", 2);
+		check(generic || typed && (trna || parser.termEquals("rRNA", 2)),
+			"Typed query projection requires typed=t and a native RNA feature", path, lineNumber);
 		final long start=parser.parseLong(3), stop=parser.parseLong(4);
 		check(start>=1 && stop>=start && stop<=Integer.MAX_VALUE,
 			"Query coordinates must fit positive one-based closed matcher bounds", path, lineNumber);
@@ -220,6 +239,9 @@ public final class NcrnaReferenceCalls{
 		check(!contig.isEmpty() && !contig.equals("."), "A generic RNA query needs a literal contig", path, lineNumber);
 		parser.setBounds(8);
 		final int limit=parser.b();
+		final int identityStart=parser.a();
+		int identityStop=identityStart;
+		while(identityStop<limit && line[identityStop]!=',' && line[identityStop]!=';'){identityStop++;}
 		int modelStart=-1, modelStop=-1, familyStart=-1, familyStop=-1;
 		for(int from=parser.a(); from<limit; ){
 			int end=from;
@@ -235,17 +257,52 @@ public final class NcrnaReferenceCalls{
 			}
 			from=end+1;
 		}
-		check(modelStart>=0 && modelStop>modelStart, "Missing model: query attribute", path, lineNumber);
-		final String model=text(line, modelStart, modelStop);
-		final int ruleIndex=projectModel(model);
-		final Rule rule=rules[ruleIndex];
-		if(familyStart>=0){
-			check(familyStop-familyStart==rule.labelBytes.length && starts(line, familyStart, familyStop, rule.labelBytes),
-				"Query family: label conflicts with model mapping", path, lineNumber);
+		check(modelStart<0 || modelStop>modelStart, generic ? "Missing model: query attribute" : "Empty model: query attribute", path, lineNumber);
+		final String model=modelStart<0 ? "." : text(line, modelStart, modelStop);
+		if(generic){
+			check(modelStart>=0, "Missing model: query attribute", path, lineNumber);
+			final int ruleIndex=projectModel(model);
+			final Rule rule=rules[ruleIndex];
+			if(familyStart>=0){
+				check(familyStop-familyStart==rule.labelBytes.length && starts(line, familyStart, familyStop, rule.labelBytes),
+					"Query family: label conflicts with model mapping", path, lineNumber);
+			}
+			final String reportedFamily=typed && familyStart>=0 ? text(line, familyStart, familyStop) : ".";
+			return new Call(new Locus(contig, rule.family, (int)start, (int)stop, strand),
+				model, lineNumber, ruleIndex, rule.include, "RNA", reportedFamily);
 		}
-		return new Call(new Locus(contig, rule.family, (int)start, (int)stop, strand),
-			model, lineNumber, ruleIndex, rule.include);
+		final String reportedFamily=familyStart<0 ? "." : text(line, familyStart, familyStop);
+		final String identity=text(line, identityStart, identityStop);
+		final int typeIndex=typedIndex(identity);
+		check(typeIndex>=0 && trna==(typeIndex==0), "Unknown or conflicting native typed RNA identity", path, lineNumber);
+		final String family=TYPED_FAMILIES[typeIndex];
+		check(familyStart<0 || reportedFamily.equals(identity), "Typed family: label conflicts with native type token", path, lineNumber);
+		// A model need not exist, but a known generic model cannot contradict the native type.
+		for(final Rule rule:rules){
+			if(modelStart>=0 && wholePrefix(model, rule.modelPrefix)){
+				check(rule.family.equals(family), "Typed model conflicts with explicit generic family mapping", path, lineNumber);
+			}
+		}
+		return new Call(new Locus(contig, family, (int)start, (int)stop, strand),
+			model, lineNumber, rules.length+typeIndex, true, identity, reportedFamily);
 	}
+
+	/** Native type token, not model naming, determines the existing truth union. */
+	private static int typedIndex(final String identity){
+		if(identity.equals("tRNA")){return 0;}
+		if(identity.equals("5S")){return 1;}
+		if(identity.equals("16S") || identity.equals("18S")){return 2;}
+		if(identity.equals("23S")){return 3;}
+		return -1;
+	}
+	private static boolean wholePrefix(final String model, final String prefix){
+		assert(model!=null && prefix!=null) : "Explicit model projection compares retained nonnull tokens";
+		if(!model.startsWith(prefix)){return false;}
+		final int end=prefix.length();
+		return end==model.length() || model.charAt(end)=='_' || model.charAt(end)==' ' || model.charAt(end)=='\t';
+	}
+	/** A fresh axis for opt-in typed populations; callers cannot mutate the shared labels. */
+	public static String[] typedFamilies(){return TYPED_FAMILIES.clone();}
 
 	private static boolean starts(final byte[] line, final int from, final int end, final byte[] prefix){
 		assert(from>=0 && from<=end && end<=line.length) : "Query tokens must stay within the validated attribute field";
@@ -300,17 +357,24 @@ public final class NcrnaReferenceCalls{
 	/** Original generic RNA row and its explicit projection, retaining duplicates. */
 	public static final class Call{
 		private Call(final Locus locus_, final String model_, final long line_, final int ruleIndex_, final boolean included_){
+			this(locus_, model_, line_, ruleIndex_, included_, "RNA", ".");
+		}
+		private Call(final Locus locus_, final String model_, final long line_, final int ruleIndex_, final boolean included_,
+			final String nativeType_, final String reportedFamily_){
 			locus=locus_;
 			model=model_;
 			line=line_;
 			ruleIndex=ruleIndex_;
 			included=included_;
+			nativeType=nativeType_;
+			reportedFamily=reportedFamily_;
 		}
 		public final Locus locus;
 		public final String model;
 		public final long line;
 		public final int ruleIndex;
 		public final boolean included;
+		public final String nativeType, reportedFamily;
 	}
 
 	/** Caller-owned rows and population counts for one exact declared input. */
@@ -322,10 +386,12 @@ public final class NcrnaReferenceCalls{
 		public final String input;
 		public final ArrayList<Call> calls=new ArrayList<Call>();
 		public final long[] ruleCounts;
-		public long features, cds, trna, rrna, included, excluded;
+		public long features, cds, trna, rrna, included, excluded, projectedTyped;
 	}
 
 	private final Rule[] rules;
+	private final boolean typed;
+	private static final String[] TYPED_FAMILIES={"tRNA", "5S", "SSU", "LSU"};
 	private final LineParser1 parser=new LineParser1('\t');
 	private static final byte[] MODEL="model:".getBytes(StandardCharsets.US_ASCII);
 	private static final byte[] FAMILY="family:".getBytes(StandardCharsets.US_ASCII);

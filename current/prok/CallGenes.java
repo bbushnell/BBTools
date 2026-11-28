@@ -1029,10 +1029,14 @@ public class CallGenes extends ProkObject implements AutoCloseable{
 		
 		if(trnaAlign && !trnaLibExplicit){
 			loadTrnaResources();
-		}else if(!trnaAlign){
-			GeneCaller.trnaLibrary=null;
-			GeneCaller.trnaModels=null;
-			GeneCaller.trnaModelNames=null;
+		}else{
+			// An explicit library cannot inherit bounds from a different prior loaded seed axis.
+			GeneCaller.trnaKeyBounds=null;
+			if(!trnaAlign){
+				GeneCaller.trnaLibrary=null;
+				GeneCaller.trnaModels=null;
+				GeneCaller.trnaModelNames=null;
+			}
 		}
 		//Boundary-precision NN -- SHIPPED, DEFAULT ON (Brian, Aug 22 2026, via Noire): a
 		//bare callgenes invocation (no tRNA boundary flags at all) now includes the refiner
@@ -2166,7 +2170,9 @@ public class CallGenes extends ProkObject implements AutoCloseable{
 			+" g5Reject="+rrnaG5Reject[ProkObject.r5S]+" g6Reject="+rrnaG6Reject[ProkObject.r5S]);
 		}
 		if((extendedStats || verbose) && calltRNA){
-			bsw.println("tRNA Alignments:  \t "+Tools.padLeft(prok.TrnaCaller.alignmentCount(), 12));
+			bsw.println("tRNA Alignments:  \t "+Tools.padLeft(trnaAlignments, 12));
+			bsw.println("tRNA Windows:     \t "+Tools.padLeft(trnaWindows, 12));
+			bsw.println("tRNA Window Bases:\t "+Tools.padLeft(trnaWindowBases, 12));
 		}
 			if(calltRNA){bsw.println("tRNA Out:             \t "+Tools.padLeft(tRNAOut, 12));}
 		if(!GeneCaller.ncrnaFamilies.isEmpty()){
@@ -2174,6 +2180,7 @@ public class CallGenes extends ProkObject implements AutoCloseable{
 				NcrnaFamily family=GeneCaller.ncrnaFamilies.get(i);
 				bsw.println("ncRNA Kmer Hits ("+family.name+"):\t "+Tools.padLeft(ncrnaKmerHits[i], 12));
 				bsw.println("ncRNA Windows ("+family.name+"):\t "+Tools.padLeft(ncrnaWindows[i], 12));
+				bsw.println("ncRNA Window Bases ("+family.name+"):\t "+Tools.padLeft(ncrnaWindowBases[i], 12));
 				if(family.voteWindows){
 					bsw.println("ncRNA Generated Voted Windows ("+family.name+"):\t "
 						+Tools.padLeft(ncrnaGeneratedVotedWindows[i], 12));
@@ -2917,16 +2924,23 @@ public class CallGenes extends ProkObject implements AutoCloseable{
 			}
 			final long[] threadNcrnaKmerHits=pt.caller.ncrnaKmerHitCounts();
 			final long[] threadNcrnaWindows=pt.caller.ncrnaWindowCounts();
+			final long[] threadNcrnaWindowBases=pt.caller.ncrnaWindowBaseCounts();
 			if(ncrnaKmerHits==null){ncrnaKmerHits=new long[threadNcrnaKmerHits.length];}
 			if(ncrnaWindows==null){ncrnaWindows=new long[threadNcrnaWindows.length];}
+			if(ncrnaWindowBases==null){ncrnaWindowBases=new long[threadNcrnaWindowBases.length];}
 			assert(ncrnaKmerHits.length==threadNcrnaKmerHits.length
 				&& ncrnaWindows.length==threadNcrnaWindows.length
-				&& ncrnaWindows.length==ncrnaKmerHits.length)
+				&& ncrnaWindows.length==ncrnaKmerHits.length && ncrnaWindowBases.length==threadNcrnaWindowBases.length
+				&& ncrnaWindowBases.length==ncrnaWindows.length)
 				: "Family count changed between workers; cannot merge ncRNA work statistics by family index";
 			for(int i=0; i<threadNcrnaKmerHits.length; i++){
 				ncrnaKmerHits[i]+=threadNcrnaKmerHits[i];
 				ncrnaWindows[i]+=threadNcrnaWindows[i];
+				ncrnaWindowBases[i]+=threadNcrnaWindowBases[i];
 			}
+			trnaWindows+=pt.caller.trnaWindowCount();
+			trnaWindowBases+=pt.caller.trnaWindowBases();
+			trnaAlignments+=pt.caller.trnaAlignmentCount();
 			accumulateNcrnaVoteStats(pt.caller);
 			pt.caller.accumulateMitoTierCounts(mitoTierCounts);
 			ncrnaSharedSweepPasses+=pt.caller.sharedSweepPasses();
@@ -3880,6 +3894,7 @@ public class CallGenes extends ProkObject implements AutoCloseable{
 		// Publish only after the complete default core validates. Explicit libraries bypass this factory.
 		if(family.kmerSet!=null){ProkObject.cacheTrnaKmers(family.kmerSet, family.kLong);}
 		GeneCaller.trnaModels=family.models;GeneCaller.trnaModelNames=family.modelNames;
+		GeneCaller.trnaKeyBounds=family.keyBounds;
 		GeneCaller.trnaLibrary=family.library;
 	}
 
@@ -3933,6 +3948,7 @@ public class CallGenes extends ProkObject implements AutoCloseable{
 		if(GLYCINE_ENABLED){loadGlycineResources();}
 		if(R58LSU_ENABLED){loadR58LsuResources();}
 		if(S18_ENABLED){loadS18DevelopmentResources();}
+		NcrnaFamilyLoader.attributeMemberKeys(GeneCaller.ncrnaFamilies);
 	}
 
 	/** The unified loader retains generic scoring/alignment and the shared-end boundary adapter. */
@@ -5789,7 +5805,8 @@ public class CallGenes extends ProkObject implements AutoCloseable{
 	private CallGenesTimeline timeline;
 	private static CallGenesFileCost fileCost;
 	/** Family-local seed occurrences and scheduled pre-filter windows, merged after join. */
-	public long[] ncrnaKmerHits, ncrnaWindows;
+	public long[] ncrnaKmerHits, ncrnaWindows, ncrnaWindowBases;
+	private long trnaWindows, trnaWindowBases, trnaAlignments;
 	/** Generated voted/fallback windows before claimed subtraction, not scheduled ncRNA Windows. */
 	long[] ncrnaGeneratedVotedWindows, ncrnaGeneratedFallbackWindows;
 	/** Actual shared 17-mer strand scans, not multiplied by the number of registered families. */

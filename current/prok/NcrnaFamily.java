@@ -211,6 +211,8 @@ public class NcrnaFamily {
 	/** Optional read-only factory; install before workers start. Null keeps the
 	 * ordinary boundary path and creates no refiner or inference state. */
 	public NcrnaBoundaryRefiner.Factory boundaryRefinerFactory=null;
+	/** Immutable per-key resources, resolved once before any worker is created. Null keeps legacy windows. */
+	public NcrnaOverlapWindowBuilder.Caps keyBounds=null;
 	/** Optional pre-path CDS context for constrained stop searches; install before
 	 * workers start. Null leaves every ordinary family unchanged. */
 	public NcrnaCdsStopConstraint.Factory cdsStopConstraintFactory=null;

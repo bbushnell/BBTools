@@ -759,3 +759,70 @@ does not compare complete emitted-call sets or infer biological causes of losses
   - Supports Candidatus organism classification
   - Configurable file renaming and sequence standardization
 - **Usage**: Command-line tool for bulk bacterial genome retrieval with fine-tuned filtering and processing options
+## Per-key window resources
+
+Registered families may install `key_bounds.tsv` or `key_bounds.tsv.gz` in the
+family directory (the member subdirectory for grouped families), or declare the
+`key_bounds` manifest role. An explicit manifest binding wins; two canonical
+files without an explicit selection fail. With neither, existing windows are
+unchanged. `FamilyResourceResolver` owns these paths; `NcrnaFamilyLoader` checks
+the complete actual forward K17 axis before workers start. The generic caller
+and independent tRNA caller use the shared `NcrnaOverlapWindowBuilder`; tRNA
+verification is unchanged. Library-only loading does not require serving bounds.
+
+`dev/reportncrnaseedpositions.sh mode=bounds metadata=t` uses complete sense-oriented
+original genes and the unchanged discovery keys. Each end is occurrence-weighted
+p99 distance plus10bases by default, capped by the full member maximum length
+minus17. `boundpercentile=90|95|98|99|99.9` and nonnegative `boundpadding=10`
+select the nearest-rank percentile and added bases. Every observed row must
+declare the same supported estimator; malformed or mixed rules fail before
+workers start. Cobalamin retains its explicit integer-percentile plus10 policy.
+These options apply only to bounds mode.
+After the eight-column header it writes `#window_ceiling_bp`, a positive value
+and its rule as three tab-separated fields. The chain ceiling is nearest-rank
+p99.9 gene length minus17 for at least1000genes (`P999_MINUS17_N_GE_1000`),
+otherwise maximum minus17 (`MAX_MINUS17_N_LT_1000`). It is distinct from the
+per-key cap. A second optional `#construction_population` row declares
+`original genes` or `built from scored reference intervals, in-corpus`, selected
+by the producer's `population=original_genes|scored_reference_intervals` option.
+It records a supplied cohort declaration, not independent extraction evidence.
+Wider original proposals survive; claim remainders keep protection.
+`boundcombine=union|intersection` requires `mode=bounds metadata=t` and writes
+`#window_combine` plus the uppercase rule as two tab-separated fields. An
+omitted row preserves union and historical output bytes. Repeated occurrences
+of one key still form a union envelope; the selected rule combines distinct-key
+envelopes within the protected raw overlap group. The split occurs before
+either combination, preserving its ceiling and wider original proposals.
+Across-member pooling remains union. Duplicate, misplaced or unknown rules
+fail before workers start; legacy cobalamin readers reject this new row.
+Unobserved keys retain explicit NA rows. Before workers start, loaded members of
+the same registered group share their observed-key attribution: an unobserved
+key that was observed in a sibling cannot open this member's window. Keys unseen
+in all loaded members keep legacy center/padding with padding capped by the
+declared ceiling. Attribution does not change observed margins, the seed scan,
+or the later seed-support gate. Report unobserved keys separately from those
+excluded by sibling evidence; a large unexplained fallback fraction can indicate
+a seed/corpus mismatch. An entirely
+missing key is an error. Existing cobalamin tables retain their external policy
+ceilings and skip-unobserved behavior. Its merged route explicitly rejects new
+generic ceiling/population metadata; it does not silently apply or ignore that
+new contract. Default `metadata=f` preserves historical producer output and
+regenerates legacy cobalamin tables for their external policy. New generic
+serving requires `metadata=t`; adding a population declaration requires it too.
+
+Extended CallGenes statistics report actual post-claim scheduled-window counts
+and inclusive base sums, separately from model alignments. Their ratio is mean
+physical window length. Shared clan work belongs to the clan, not each emitted
+member; member bookkeeping zeros are not measurements of zero work.
+The tRNA alignment statistic merges worker-local counts after join, including
+work retained across a PGM replacement. It counts the six native verifier sites,
+not delegated boundary-feature alignment work. The historical static tRNA
+counter remains approximate for compatibility and is not used for this report.
+
+`dev/gradencrnareference.sh typed=t` adds saved native tRNA/rRNA query projection
+onto existing tRNA/5S/SSU/LSU truth, using the same matcher and reference masks.
+Native types and optional model/family attributes remain visible. It appends
+attribution columns and a `projected_typed` counter; typed observations are
+already included in query totals and must not be added twice. The default
+generic-only mode and live projection API retain their old behavior. This
+saved-GFF mode does not combine with subtype evidence or create new truth.

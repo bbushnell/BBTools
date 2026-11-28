@@ -56,7 +56,7 @@ public final class ReportNcrnaSeedPositions{
 		final Parser parser=new Parser();
 		parser.overwrite=false;
 		String orientation=null;
-		boolean percentileSpecified=false;
+		boolean percentileSpecified=false, paddingSpecified=false, populationSpecified=false, metadataSpecified=false;
 		for(final String arg:args){
 			final String[] pair=Parse.splitOnFirst(arg, '=');
 			final String a=pair[0].toLowerCase(Locale.ROOT), b=pair.length>1 ? pair[1] : null;
@@ -68,10 +68,24 @@ public final class ReportNcrnaSeedPositions{
 				boundsOnly="bounds".equals(b);
 			}else if(a.equals("member")){
 				member=b;
+			}else if(a.equals("population")){
+				require("original_genes".equals(b) || "scored_reference_intervals".equals(b),
+					"population must explicitly name original_genes or scored_reference_intervals");
+				constructionPopulation="original_genes".equals(b) ? NcrnaOverlapWindowBuilder.POPULATION_ORIGINALS
+					: NcrnaOverlapWindowBuilder.POPULATION_SCORED;
+				populationSpecified=true;
+			}else if(a.equals("metadata")){
+				writeMetadata=Parse.parseBoolean(b);
+				metadataSpecified=true;
 			}else if(a.equals("boundpercentile")){
-				boundPercentile=Parse.parseIntKMG(b);
-				NcrnaOverlapWindowBuilder.capRule(boundPercentile);
+				boundPercentile=Double.parseDouble(b);
 				percentileSpecified=true;
+			}else if(a.equals("boundpadding")){
+				boundPadding=Parse.parseIntKMG(b);
+				paddingSpecified=true;
+			}else if(a.equals("boundcombine")){
+				require("union".equals(b) || "intersection".equals(b), "boundcombine must be union or intersection");
+				boundCombination="union".equals(b) ? NcrnaOverlapWindowBuilder.UNION : NcrnaOverlapWindowBuilder.INTERSECTION;
 			}else if(a.equals("expectedgenes")){
 				expectedGenes=Parse.parseIntKMG(b);
 			}else if(a.equals("expectedkeys")){
@@ -85,6 +99,12 @@ public final class ReportNcrnaSeedPositions{
 		input=parser.in1;
 		out=parser.out1;
 		require(!percentileSpecified || boundsOnly, "boundpercentile applies only to mode=bounds, never historical position or length diagnostics");
+		require(!paddingSpecified || boundsOnly, "boundpadding applies only to mode=bounds, never historical position or length diagnostics");
+		NcrnaOverlapWindowBuilder.capRule(boundPercentile, boundPadding);
+		require(!populationSpecified || boundsOnly, "population is declared only by mode=bounds; it is not inferred from reference names");
+		require(!metadataSpecified || boundsOnly, "metadata applies only to mode=bounds");
+		require(boundCombination==null || boundsOnly && writeMetadata, "boundcombine requires bounds mode and metadata=t; legacy tables keep their existing external policy");
+		require(!populationSpecified || writeMetadata, "An explicit construction population requires metadata=t; legacy bounds cannot record it");
 		require(input!=null && out!=null && member!=null && !member.isEmpty(),
 			"Supply one member, its complete reference-gene FASTA and a fresh output prefix");
 		if(lengthsOnly){
@@ -144,7 +164,7 @@ public final class ReportNcrnaSeedPositions{
 			writeRecordLengths();
 			log.println("NCRNA_SEED_BOUNDS_REPORTED member="+member+" genes="+expectedGenes+" keys="+keys.length
 				+" occurrences="+occurrences+" distinct_reference_key_pairs="+referenceKeys
-				+" gene_max="+lengths.get(lengths.size-1)+" estimator="+NcrnaOverlapWindowBuilder.capRule(boundPercentile));
+				+" gene_max="+lengths.get(lengths.size-1)+" estimator="+NcrnaOverlapWindowBuilder.capRule(boundPercentile, boundPadding));
 			return;
 		}
 		for(int method=0; method<METHODS.length; method++){
@@ -290,25 +310,43 @@ public final class ReportNcrnaSeedPositions{
 		}
 	}
 	/** Makes serving margins from the complete admitted originals in one counting
-	 * pass. Each end uses its own occurrence-weighted percentile plus ten bases; the cap
+	 * pass. Each end uses its own occurrence-weighted percentile plus explicit padding; the cap
 	 * is the FULL member maximum minus seventeen, never the key's observed maximum. */
 	private void writeBounds(){
 		final int maximum=lengths.get(lengths.size-1);
+		final String estimator=NcrnaOverlapWindowBuilder.capRule(boundPercentile, boundPadding);
 		try(Output output=new Output(out+".bounds.tsv")){
 			output.writer.println(NcrnaOverlapWindowBuilder.CAP_HEADER);
+			if(writeMetadata){
+				final int ceiling=chainCeiling(lengths.array, lengths.size);
+				output.writer.print(new ByteBuilder().append(NcrnaOverlapWindowBuilder.CEILING_TAG).tab().append(ceiling).tab()
+					.append(lengths.size>=1000 ? NcrnaOverlapWindowBuilder.CEILING_P999 : NcrnaOverlapWindowBuilder.CEILING_MAX).nl());
+				output.writer.print(new ByteBuilder().append(NcrnaOverlapWindowBuilder.POPULATION_TAG).tab().append(constructionPopulation).nl());
+				if(boundCombination!=null){
+					output.writer.print(new ByteBuilder().append(NcrnaOverlapWindowBuilder.COMBINATION_TAG).tab().append(boundCombination).nl());
+				}
+			}
 			for(int i=0; i<keys.length; i++){
 				final Key key=stats[i];
 				row.clear().append(member).tab().appendKmer(keys[i], K).tab().append(key.left.size).tab().append(key.references);
 				if(key.left.size==0){row.append("\tNA\tNA\tNA\tNO_OCCURRENCES");}
 				else{
-					final int left=boundedMargin(key.left.array, key.left.size, maximum, boundPercentile);
-					final int right=boundedMargin(key.right.array, key.right.size, maximum, boundPercentile);
+					final int left=boundedMargin(key.left.array, key.left.size, maximum, boundPercentile, boundPadding);
+					final int right=boundedMargin(key.right.array, key.right.size, maximum, boundPercentile, boundPadding);
 					row.tab().append(left).tab().append(right).tab().append((long)K+left+right)
-						.tab().append(NcrnaOverlapWindowBuilder.capRule(boundPercentile));
+						.tab().append(estimator);
 				}
 				output.writer.print(row.nl());
 			}
 		}
+	}
+	/** Input lengths are sorted complete originals. The sample-size rule excludes one giant at n=1000. */
+	public static int chainCeiling(final int[] sorted, final int size){
+		require(sorted!=null && size>0 && size<=sorted.length,
+			"Chain ceilings require the complete nonempty original-gene length population");
+		final int length=size>=1000 ? percentile(sorted, size, 999, 1000) : sorted[size-1];
+		require(length>K, "Protected K17 windows require a positive gene-length-minus17 chain ceiling");
+		return length-K;
 	}
 	/** Reports complete member lengths and the distinct-key strata, without dropping no-hit genes. */
 	private void writeLengths(){
@@ -410,12 +448,17 @@ public final class ReportNcrnaSeedPositions{
 	/** The explicit serving percentile uses the same occurrence weights and
 	 * full-member cap as p99; only its nearest rank changes. */
 	public static int boundedMargin(final int[] sorted, final int n, final int memberMaximum, final int percentile){
-		NcrnaOverlapWindowBuilder.capRule(percentile);
+		return boundedMargin(sorted, n, memberMaximum, percentile, 10);
+	}
+	/** Exact tenth-percent ranks also express p99.9; padding never exceeds the full-member cap. */
+	public static int boundedMargin(final int[] sorted, final int n, final int memberMaximum, final double percentile, final int padding){
+		NcrnaOverlapWindowBuilder.capRule(percentile, padding);
 		require(memberMaximum>0, "Serving padding is bounded by the measured full member maximum, not a per-key gene subset");
-		final int margin=percentile(sorted, n, percentile, 100);
+		final int numerator=(int)Math.round(percentile*10);
+		final int margin=percentile(sorted, n, numerator, 1000);
 		require(margin>=0 && (long)margin+K<=memberMaximum,
 			"An observed key-end distance plus its seed footprint must fit within the complete member maximum");
-		return (int)Math.min(Math.max(0L, memberMaximum-(long)K), margin+10L);
+		return (int)Math.min(Math.max(0L, memberMaximum-(long)K), margin+(long)padding);
 	}
 
 	/*--------------------------------------------------------------*/
@@ -570,9 +613,12 @@ public final class ReportNcrnaSeedPositions{
 
 	private final PrintStream log;
 	private String input, out, seedPath, member;
-	private boolean lengthsOnly, boundsOnly;
+	private String constructionPopulation=NcrnaOverlapWindowBuilder.POPULATION_ORIGINALS;
+	private boolean lengthsOnly, boundsOnly, writeMetadata;
 	private int expectedGenes=-1, expectedKeys=-1, blanket;
-	private int boundPercentile=99;
+	private double boundPercentile=99;
+	private int boundPadding=10;
+	private String boundCombination;
 	private long[] keys;
 	private LongIntMap index;
 	private Key[] stats;

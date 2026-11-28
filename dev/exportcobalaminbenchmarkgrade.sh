@@ -4,6 +4,13 @@ set -eo pipefail
 if [[ $# == 0 || $1 == -h || $1 == --help ]];then
  cat <<'HELP'
 Usage: dev/exportcobalaminbenchmarkgrade.sh in=completed_grade out=fresh_prefix
+Optional family=cobalamin selects the exact canonical family from the grade.
+For example, family=RNaseP exports that biological union without inferring subtypes.
+Other families use canonical export mode, write one family cohort and a .family.tsv
+identity file, and omit cobalamin alignment columns from metrics. Legacy, members,
+model-roster and timing/callerlog options remain cobalamin-only.
+Generic normalized cohort columns are named family_union; original model fields
+stay unchanged, and no emitted subtype is inferred.
 For historical CobalaminPanelGrade: legacy=t panel=original_panel.loci.tsv
 For a canonical grade produced with inexact=t: inexact=t
 

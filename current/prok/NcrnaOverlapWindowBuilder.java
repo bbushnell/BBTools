@@ -33,8 +33,16 @@ public final class NcrnaOverlapWindowBuilder{
 	 * Original single-key intervals are retained even when wider than the ceiling. */
 	public ArrayList<int[]> build(final int[] centers, final long[] keys, final int sequenceLength,
 		final int padding, final boolean union, final int minimum, final int edgeMinimum, final Caps caps, final int ceiling){
-		require(ceiling>=0 && (ceiling==0 || union && caps!=null),
-			"Chain ceilings apply only to the explicit per-key union experiment");
+		return build(centers, keys, sequenceLength, padding, union, minimum, edgeMinimum, caps, ceiling, false);
+	}
+	/** New generic files retain unmeasured keys with legacy padding capped at their declared family ceiling. */
+	public ArrayList<int[]> build(final int[] centers, final long[] keys, final int sequenceLength,
+		final int padding, final boolean union, final int minimum, final int edgeMinimum, final Caps caps,
+		final int ceiling, final boolean retainUnmeasured){
+		require(ceiling>=0 && (ceiling==0 || caps!=null),
+			"Protected overlap chains require explicit per-key bounds, with the same ceiling for union and intersection");
+		require(!retainUnmeasured || caps!=null && ceiling>0,
+			"Unmeasured-key fallback needs the same explicit family ceiling as its measured neighbors");
 		require(centers!=null && sequenceLength>0 && padding>=0 && minimum>0 && edgeMinimum>=0
 			&& keys!=null && keys.length==centers.length,
 			"Overlap windows require actual seed centers, positive lengths and the identity of every seed occurrence");
@@ -53,10 +61,17 @@ public final class NcrnaOverlapWindowBuilder{
 			}else{
 				final int index=caps.index.get(keys[i]);
 				if(index<0){throw new IllegalArgumentException("The configured per-key bounds omit a scanned seed: "+keys[i]);}
-				if(caps.left[index]<0){unavailableSeeds++;continue;}
-				final long keyStart=(long)center-K/2;
-				start=keyStart-caps.left[index];
-				stop=keyStart+K-1+caps.right[index];
+				if(caps.left[index]<0){
+					unavailableSeeds++;
+					if(!retainUnmeasured || caps.siblingOnly!=null && caps.siblingOnly[index]){continue;}
+					final int fallback=Math.min(padding, ceiling);
+					start=(long)center-fallback;
+					stop=(long)center+fallback+K;
+				}else{
+					final long keyStart=(long)center-K/2;
+					start=keyStart-caps.left[index];
+					stop=keyStart+K-1+caps.right[index];
+				}
 			}
 			final int a=(int)Math.max(0L, start), z=(int)Math.min(sequenceLength-1L, stop);
 			assert(a>=0 && z>=a && z<sequenceLength) : "A nonnegative seed margin must retain its physical seed after contig clipping";
@@ -87,6 +102,32 @@ public final class NcrnaOverlapWindowBuilder{
 			first=end;
 		}
 		assert(geometry.conserves()) : "Overlap groups must conserve each usable seed occurrence exactly once, including discarded groups";
+		return result;
+	}
+	/** Reconstruct only supplied scanner hits; no second genome scan and no per-base allocation. */
+	public static long[] hitKeys(final byte[] bases, final int[] centers, final int k){
+		assert(bases!=null && centers!=null && k>0 && k<=31) : "Forward scanner hits retain their sequence and valid fixed seed width";
+		final long[] keys=new long[centers.length];
+		for(int i=0; i<centers.length; i++){
+			final int start=centers[i]-k/2;
+			assert(start>=0 && (long)start+k<=bases.length) : "Each supplied seed center owns a complete scanned footprint";
+			long word=0;
+			for(int j=0; j<k; j++){
+				final int value=AminoAcid.baseToNumber[bases[start+j]];
+				assert(value>=0) : "Scanner seed hits cannot cross ambiguous sequence";
+				word=(word<<2)|value;
+			}
+			keys[i]=word;
+		}
+		return keys;
+	}
+	/** Claim subtraction may shorten geometry but cannot discard its protection metadata. */
+	public static int[] part(final int[] window, final int start, final int stop){
+		assert(window!=null && window.length>=2 && start>=window[0] && stop<=window[1] && stop>=start)
+			: "A surviving claim remainder stays inside its original protected interval";
+		final int[] result=window.clone();
+		result[0]=start;
+		result[1]=stop;
 		return result;
 	}
 
@@ -242,17 +283,51 @@ public final class NcrnaOverlapWindowBuilder{
 		/** An explicit percentile must match every observed table row; omission
 		 * above keeps the historical p99 contract, including its diagnostics. */
 		public static Caps load(final String path, final String member, final int expectedKeys, final int percentile){
+			return read(path, member, expectedKeys, capRule(percentile));
+		}
+		/** Generic tables declare one exact percentile/padding rule and their own positive chain ceiling. */
+		public static Caps loadGeneric(final String path, final String member, final int expectedKeys){
+			final Caps caps=read(path, member, expectedKeys, null);
+			require(caps.chainCeiling>0, "Generic per-key windows require explicit positive chain-ceiling metadata: "+member);
+			return caps;
+		}
+		/** A null required rule is inferred once from the first observed key, never independently per row. */
+		private static Caps read(final String path, final String member, final int expectedKeys, final String requiredRule){
 			require(path!=null && member!=null && expectedKeys>0, "Per-key bounds need an explicit member, table and fixed-axis size");
-			final String rule=capRule(percentile);
+			String rule=requiredRule;
 			final LongList words=new LongList(expectedKeys);
 			final IntList left=new IntList(expectedKeys), right=new IntList(expectedKeys);
 			final LineParser1 p=new LineParser1('\t');
+			int ceiling=0;
+			String ceilingRule=null, population=null, combination=null;
 			long line=1;
 			try(Input input=new Input(path)){
 				RrnaResourceIO.header(input.reader, CAP_HEADER, path);
 				for(byte[] row=input.reader.nextLine(); row!=null; row=input.reader.nextLine()){
 					line++;
 					p.set(row);
+					if(p.termEquals(CEILING_TAG, 0)){
+						require(words.size==0 && ceilingRule==null && p.terms()==3,
+							"One chain-ceiling metadata row may precede the fixed seed axis");
+						ceiling=p.parseInt(1);
+						ceilingRule=p.parseString(2);
+						validateCeiling(ceiling, ceilingRule);
+						continue;
+					}
+					if(p.termEquals(POPULATION_TAG, 0)){
+						require(words.size==0 && population==null && p.terms()==2,
+							"One declared construction population may precede the fixed seed axis");
+						population=p.parseString(1);
+						validatePopulation(population);
+						continue;
+					}
+					if(p.termEquals(COMBINATION_TAG, 0)){
+						require(requiredRule==null && words.size==0 && combination==null && p.terms()==2,
+							"One generic combining-rule row may precede the seed axis; legacy explicit-policy readers reject it");
+						combination=p.parseString(1);
+						validateCombination(combination);
+						continue;
+					}
 					require(p.terms()==8 && p.termEquals(member, 0), "Each seed-bound row must retain its exact member and eight-field schema");
 					final long word=word(p);
 					final long occurrences=p.parseLong(2), references=p.parseLong(3);
@@ -265,8 +340,12 @@ public final class NcrnaOverlapWindowBuilder{
 						right.add(-1);
 					}else{
 						final int a=p.parseInt(4), z=p.parseInt(5);
+						if(rule==null){
+							rule=p.parseString(7);
+							validateCapRule(rule);
+						}
 						require(a>=0 && z>=0 && p.parseLong(6)==K+(long)a+z && p.termEquals(rule, 7),
-							"The per-key caller requires p"+percentile+"+10 bounds capped by the full member maximum-minus17, not legacy p99.9 margins");
+							"All observed rows require the same declared full-member-capped percentile/padding rule: "+rule);
 						left.add(a);
 						right.add(z);
 					}
@@ -274,7 +353,8 @@ public final class NcrnaOverlapWindowBuilder{
 				}
 			}catch(RuntimeException failure){throw new IllegalArgumentException("Invalid per-key bounds at line "+line+" in "+path, failure);}
 			require(words.size==expectedKeys, "Every fixed seed key must retain one available or explicitly unavailable bounds row");
-			return new Caps(Arrays.copyOf(words.array, words.size), Arrays.copyOf(left.array, left.size), Arrays.copyOf(right.array, right.size));
+			return new Caps(Arrays.copyOf(words.array, words.size), Arrays.copyOf(left.array, left.size),
+				Arrays.copyOf(right.array, right.size), ceiling, ceilingRule, population, combination);
 		}
 		private static long word(final LineParser1 p){
 			p.setBounds(1);
@@ -291,19 +371,86 @@ public final class NcrnaOverlapWindowBuilder{
 			return word;
 		}
 		public Caps(final long[] keys, final int[] left_, final int[] right_){
+			this(keys, left_, right_, 0, null);
+		}
+		/** Legacy tables have no metadata; only their existing external policy may supply a ceiling. */
+		public Caps(final long[] keys, final int[] left_, final int[] right_, final int ceiling_, final String rule_){
+			this(keys, left_, right_, ceiling_, rule_, null);
+		}
+		/** Population text is a caller declaration, not independent proof of how genes were extracted. */
+		public Caps(final long[] keys, final int[] left_, final int[] right_, final int ceiling_, final String rule_, final String population_){
+			this(keys, left_, right_, ceiling_, rule_, population_, null);
+		}
+		/** An omitted rule preserves union; an explicit generic rule accompanies a positive chain ceiling. */
+		public Caps(final long[] keys, final int[] left_, final int[] right_, final int ceiling_, final String rule_,
+			final String population_, final String combination_){
 			require(keys!=null && left_!=null && right_!=null && keys.length>0
 				&& keys.length==left_.length && keys.length==right_.length,
 				"Per-key margins require one left/right row on the same nonempty fixed forward seed axis");
 			left=left_.clone();
 			right=right_.clone();
+			require(ceiling_==0 && rule_==null || ceiling_>0 && rule_!=null,
+				"Chain-ceiling metadata is either absent as a pair or an explicit positive bound and rule");
+			if(rule_!=null){validateCeiling(ceiling_, rule_);}
+			chainCeiling=ceiling_;
+			chainCeilingRule=rule_;
+			if(population_!=null){
+				validatePopulation(population_);
+				require(ceiling_>0, "Declared construction populations accompany the new explicit chain-ceiling schema");
+			}
+			constructionPopulation=population_;
+			if(combination_!=null){
+				validateCombination(combination_);
+				require(ceiling_>0, "An explicit generic combining rule requires its protected chain ceiling");
+			}
+			union=combination_==null || UNION.equals(combination_);
 			index=new LongIntMap(keys.length*2);
+			int unmeasured=0;
 			for(int i=0; i<keys.length; i++){
 				require(keys[i]>=0 && keys[i]<(1L<<(2*K)) && index.get(keys[i])<0,
 					"The fixed forward seventeen-mer axis must contain unique valid words");
 				require(left[i]>=-1 && right[i]>=-1 && (left[i]<0)==(right[i]<0),
 					"Unavailable margins use -1 at both ends; observed margins must be nonnegative");
 				index.put(keys[i], i);
+				if(left[i]<0){unmeasured++;}
 			}
+			unmeasuredKeys=unmeasured;
+			siblingOnly=null;
+			siblingOnlyKeys=0;
+		}
+		/** Shares immutable margins and indexing; only the new attribution mask is owned here. */
+		private Caps(final Caps source, final boolean[] excluded, final int count){
+			assert(excluded!=null && excluded.length==source.left.length && count>0 && count<=source.unmeasuredKeys)
+				: "Sibling exclusion can mark only existing unobserved member rows before worker publication";
+			index=source.index;
+			left=source.left;
+			right=source.right;
+			chainCeiling=source.chainCeiling;
+			chainCeilingRule=source.chainCeilingRule;
+			constructionPopulation=source.constructionPopulation;
+			union=source.union;
+			unmeasuredKeys=source.unmeasuredKeys;
+			siblingOnly=excluded;
+			siblingOnlyKeys=count;
+		}
+		/** Cold group binding excludes a key only with positive observations in a sibling.
+		 * Unseen-in-all keys remain eligible for the ordinary capped fallback. */
+		Caps withoutSiblingOnly(final Caps sibling){
+			require(sibling!=null, "Member attribution needs an actual loaded sibling table, not inferred absence");
+			final long[] keys=index.keys();
+			final int[] rows=index.values();
+			assert(keys.length==rows.length) : "LongIntMap exposes parallel immutable key/value arrays for the bounds row index";
+			boolean[] excluded=null;
+			int count=siblingOnlyKeys;
+			for(int i=0; i<keys.length; i++){
+				if(keys[i]<0){continue;}
+				final int row=rows[i];
+				if(left[row]>=0 || sibling.leftMargin(keys[i])<0 || siblingOnly!=null && siblingOnly[row]){continue;}
+				if(excluded==null){excluded=siblingOnly==null ? new boolean[left.length] : siblingOnly.clone();}
+				excluded[row]=true;
+				count++;
+			}
+			return excluded==null ? this : new Caps(this, excluded, count);
 		}
 		/** A row count cannot establish the loaded forward seed identity. Check
 		 * the complete actual resource set once, before constructing workers. */
@@ -326,6 +473,26 @@ public final class NcrnaOverlapWindowBuilder{
 		}
 		private final LongIntMap index;
 		private final int[] left, right;
+		private final boolean[] siblingOnly;
+		public final int chainCeiling;
+		public final String chainCeilingRule;
+		public final String constructionPopulation;
+		/** Combines distinct-key envelopes only; repeated-key envelopes and across-member pooling remain unions. */
+		public final boolean union;
+		public final int unmeasuredKeys;
+		/** Unobserved here but observed in a loaded sibling; these keys cannot open a window. */
+		public final int siblingOnlyKeys;
+	}
+	private static void validateCeiling(final int ceiling, final String rule){
+		require(ceiling>0 && (CEILING_P999.equals(rule) || CEILING_MAX.equals(rule)),
+			"Chain ceilings require a positive gene-length-minus17 value and the declared sample-size rule");
+	}
+	private static void validatePopulation(final String population){
+		require(POPULATION_ORIGINALS.equals(population) || POPULATION_SCORED.equals(population),
+			"Bounds must explicitly declare original genes or scored reference intervals in-corpus");
+	}
+	private static void validateCombination(final String rule){
+		require(UNION.equals(rule) || INTERSECTION.equals(rule), "Generic bounds combine distinct keys with exactly UNION or INTERSECTION");
 	}
 	private static void require(final boolean valid, final String why){if(!valid){throw new IllegalArgumentException(why);}}
 	private long[] order=new long[0];
@@ -339,12 +506,35 @@ public final class NcrnaOverlapWindowBuilder{
 	private static final int K=17;
 	public static final String CAP_HEADER="member\tforward_17mer\toccurrences\tdistinct_references\tleft_cap_bp\tright_cap_bp\tper_hit_window_bp\testimator";
 	public static final String CAP_RULE="P99_PLUS10_MEMBER_MAX_MINUS17";
-	/** Shared producer/consumer label; only the four measured percentile rules
-	 * are supported, and a mislabeled or mixed table fails before callers start. */
+	public static final String CEILING_TAG="#window_ceiling_bp";
+	public static final String CEILING_P999="P999_MINUS17_N_GE_1000";
+	public static final String CEILING_MAX="MAX_MINUS17_N_LT_1000";
+	public static final String POPULATION_TAG="#construction_population";
+	public static final String POPULATION_ORIGINALS="original genes";
+	public static final String POPULATION_SCORED="built from scored reference intervals, in-corpus";
+	public static final String COMBINATION_TAG="#window_combine";
+	public static final String UNION="UNION", INTERSECTION="INTERSECTION";
+	/** Legacy explicit readers retain their integer-percentile plus-ten contract. */
 	public static String capRule(final int percentile){
-		require(percentile==90 || percentile==95 || percentile==98 || percentile==99,
-			"Bound percentile must be one of the measured 90,95,98,99 rules");
-		return percentile==99 ? CAP_RULE : "P"+percentile+"_PLUS10_MEMBER_MAX_MINUS17";
+		return capRule((double)percentile, 10);
+	}
+	/** Shared producer/consumer label records the actual nearest rank and nonnegative end padding. */
+	public static String capRule(final double percentile, final int padding){
+		require((percentile==90 || percentile==95 || percentile==98 || percentile==99 || percentile==99.9) && padding>=0,
+			"Bounds require percentile90/95/98/99/99.9 and nonnegative added bases");
+		if(percentile==99 && padding==10){return CAP_RULE;}
+		final String text=percentile==99.9 ? "99.9" : Integer.toString((int)percentile);
+		return "P"+text+"_PLUS"+padding+"_MEMBER_MAX_MINUS17";
+	}
+	/** Parse one cold metadata value, rejecting legacy diagnostics, noncanonical text and unknown rules. */
+	private static void validateCapRule(final String rule){
+		final String suffix="_MEMBER_MAX_MINUS17";
+		final int plus=rule.indexOf("_PLUS"), end=rule.length()-suffix.length();
+		require(rule.startsWith("P") && rule.endsWith(suffix) && plus>1 && plus+5<end,
+			"Generic bounds require an explicit full-member-capped percentile and added-base estimator: "+rule);
+		final double percentile=Double.parseDouble(rule.substring(1, plus));
+		final int padding=Integer.parseInt(rule.substring(plus+5, end));
+		require(rule.equals(capRule(percentile, padding)), "Generic bounds estimator text must be canonical: "+rule);
 	}
 	private static final Comparator<int[]> BY_SPAN=(a, b)->{
 		final int start=Integer.compare(a[0], b[0]);

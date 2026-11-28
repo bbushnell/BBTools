@@ -4,6 +4,14 @@ set -eo pipefail
 if [[ $# == 0 || $1 == -h || $1 == --help ]];then
  cat <<'HELP'
 Usage: dev/comparecobalaminbenchmarkgrades.sh in1=export_before in2=export_after out=fresh_prefix
+Optional family=cobalamin selects the exact canonical family used for both exports.
+Other families require matching .family.tsv identity files and report one biological
+union cohort, including first/last-detection genomes and fixed paired endpoints.
+Their version markers begin NCRNA; default cobalamin report bytes are unchanged.
+Member-label transitions are not measured for these unions: their summary rows
+are omitted and paired label_switches fields are NA. Any present .family.tsv
+declaration is checked even with default or explicit family=cobalamin.
+The changesonly, subset, replay and mode=report options remain cobalamin-only.
 Presentation: dev/comparecobalaminbenchmarkgrades.sh mode=report in=completed_tables \
   in2=original_replay out=fresh_directory t=1
 Report mode reads the six small-radius configurations on 1000/300 genomes,

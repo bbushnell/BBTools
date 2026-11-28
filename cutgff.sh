@@ -29,6 +29,10 @@ attributes=         A comma-delimited list of strings.  If present, one of
                     these strings must be in the gff line attributes.
 bannedattributes=   A comma-delimited list of banned strings.
 banpartial=t        Ignore lines with 'partial=true' in attributes.
+decodeseqid=f       Decode GFF3 percent escapes in seqids before FASTA lookup.
+                    Decodes once, preserves literal '+', and rejects malformed
+                    escapes or UTF-8. Attributes and coordinates are unchanged.
+                    Default false matches seqids literally, including percent signs.
 minlen=1            Ignore lines shorter than this.
 maxlen=2147483647   Ignore lines longer than this.
 flank=0             Add this many bases of genomic flank to each side of every

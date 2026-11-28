@@ -63,7 +63,14 @@ public class TrnaCaller extends ProkObject {
 		boundary3Net=(REFINE_BOUNDARIES && BOUNDARY_3_NET_TEMPLATE!=null ? BOUNDARY_3_NET_TEMPLATE.copy(false) : null);
 	}
 
+	/** Historical approximate process total; parallel reports use the exact worker-local counter. */
 	public static long alignmentCount(){return alignmentCount;}
+	/** Physical verifier calls at the six instrumented native sites; not delegated boundary-feature work. */
+	public long workerAlignmentCount(){return workerAlignments;}
+	private void recordAlignment(){
+		workerAlignments++;
+		alignmentCount++;//Retain the historical approximate API without a shared atomic in the hot path.
+	}
 
 	public ArrayList<Orf> callTrnas(String name, byte[] bases, int strand){
 		ArrayList<Orf> results=new ArrayList<>();
@@ -384,7 +391,7 @@ public class TrnaCaller extends ProkObject {
 			final float lenSim=Tools.min(product.length, trnaLibrary[m].length)/(float)Tools.max(product.length, trnaLibrary[m].length);
 			if(lenSim<MIN_LEN_SIM){continue;}//coverage guard: no zero-cost-deletion match
 			final float id=NcrnaAlignmentWork.scrabble(product, trnaLibrary[m], null, trnaLibrary[m].length);
-			alignmentCount++;
+			recordAlignment();
 			if(id>bestId){bestId=id; bestModel=m; sinceImproved=0;}else{sinceImproved++;}
 			if(id>=ID_PASS){passed=true; if(earlyExit && sinceImproved>=earlyExitPatience){break;}}
 			if(trnaModels!=null && id>=ID_BORDERLINE_LONG){borderlineModels[borderlineCount++]=m;}
@@ -467,7 +474,7 @@ public class TrnaCaller extends ProkObject {
 		for(int j=0; j<shortlist.length; j++){
 			int i=shortlist[j];
 			float id=NcrnaAlignmentWork.scrabble(seq, trnaLibrary[i], null, trnaLibrary[i].length);
-			alignmentCount++;
+			recordAlignment();
 			final float lenSim=Tools.min(seq.length, trnaLibrary[i].length)/(float)Tools.max(seq.length, trnaLibrary[i].length);
 			final float combo=id*lenSim;
 			if(id>bestId){bestId=id; bestModel=i; sinceImproved=0;}
@@ -610,7 +617,7 @@ public class TrnaCaller extends ProkObject {
 		stats.doTrace=true;
 		if(seq.length>=cons.length){NcrnaAlignmentWork.scrabbleTrace(cons, seq, stats, cons.length);}
 		else{NcrnaAlignmentWork.scrabbleTrace(seq, cons, stats, cons.length);}
-		alignmentCount++;
+		recordAlignment();
 		return stats;
 	}
 
@@ -789,6 +796,31 @@ public class TrnaCaller extends ProkObject {
 	/*----------------       tRNA Scavenger Pass       ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Only scheduling changes; the independent tRNA alignment/HBM/boundary verifier is untouched. */
+	public void setKeyBounds(final NcrnaOverlapWindowBuilder.Caps caps){
+		if(caps==null || caps.chainCeiling<=0 || keyBounds!=null || windowCount!=0 || ProkObject.kLongTRna!=17){
+			throw new IllegalArgumentException("tRNA per-key windows need one K17 ceiling-bound table before scavenging");
+		}
+		keyBounds=caps;
+		keyWindowBuilder=new NcrnaOverlapWindowBuilder();
+	}
+	public long windowCount(){return windowCount;}
+	public long windowBases(){return windowBases;}
+	private void recordWindow(final int[] window){
+		assert(window!=null && window.length>=2 && window[0]>=0 && window[1]>=window[0])
+			: "tRNA scheduling work counts the actual post-claim physical window, not each model alignment";
+		windowCount++;
+		windowBases+=(long)window[1]-window[0]+1;
+	}
+	/** Shared scheduling seam for both passes; this does not run the independent verifier. */
+	public ArrayList<int[]> prepareCandidateWindows(final byte[] bases, final int[] hits){
+		assert(bases!=null && hits!=null) : "Candidate geometry borrows the caller's real sequence and seed-hit stream";
+		if(keyBounds==null){return collapseByIntersection(buildCandidateWindows(hits, bases.length));}
+		final long[] keys=NcrnaOverlapWindowBuilder.hitKeys(bases, hits, ProkObject.kLongTRna);
+		return keyWindowBuilder.build(hits, keys, bases.length, SCAV_PAD, keyBounds.union, MIN_TRNA, 0,
+			keyBounds, keyBounds.chainCeiling, true);
+	}
+
 	public ArrayList<Orf> scavengeTrnas(String name, byte[] bases, int strand, ArrayList<int[]> called){
 		return scavengeTrnas(name, bases, strand, called, findKmerHitPositions(bases));
 	}
@@ -802,10 +834,10 @@ public class TrnaCaller extends ProkObject {
 		final int initialClaimCount=called.size();
 		if(hitPositions==null){throw new IllegalArgumentException("Null tRNA seed-hit stream");}
 		if(hitPositions.length==0){return results;}
-		ArrayList<int[]> windows=buildCandidateWindows(hitPositions, bases.length);
-		windows=collapseByIntersection(windows);
+		ArrayList<int[]> windows=prepareCandidateWindows(bases, hitPositions);
 		windows=subtractClaimed(windows, called);
 		for(int[] w : windows){
+			recordWindow(w);
 			alignWindow(name, bases, strand, w[0], w[1], results);
 		}
 		if(SCAV_MULTILOCUS){coalesceOverlapping(results);}
@@ -815,11 +847,11 @@ public class TrnaCaller extends ProkObject {
 		if(SCAVENGE_PASS2){
 			int[] nearHits=findNearbyUnclaimed(hitPositions, called, bases.length);
 			if(nearHits.length>0){
-				ArrayList<int[]> pass2Windows=buildCandidateWindows(nearHits, bases.length);
-				pass2Windows=collapseByIntersection(pass2Windows);
+				ArrayList<int[]> pass2Windows=prepareCandidateWindows(bases, nearHits);
 				pass2Windows=subtractClaimed(pass2Windows, called);
 				ArrayList<Orf> pass2=new ArrayList<>();
 				for(int[] w : pass2Windows){
+					recordWindow(w);
 					alignWindow(name, bases, strand, w[0], w[1], pass2);
 				}
 				results.addAll(pass2);
@@ -980,7 +1012,7 @@ public class TrnaCaller extends ProkObject {
 		ArrayList<int[]> result=new ArrayList<>();
 		for(int[] w : windows){
 			ArrayList<int[]> segments=new ArrayList<>();
-			segments.add(new int[]{w[0], w[1]});
+			segments.add(claimPart(w, w[0], w[1]));
 			for(int[] c : claimed){
 				ArrayList<int[]> next=new ArrayList<>();
 				for(int[] seg : segments){
@@ -989,8 +1021,8 @@ public class TrnaCaller extends ProkObject {
 						next.add(seg);//no overlap with this claim -- unchanged
 						continue;
 					}
-					if(lo<c[0]){next.add(new int[]{lo, c[0]-1});}//left remainder survives
-					if(hi>c[1]){next.add(new int[]{c[1]+1, hi});}//right remainder survives
+					if(lo<c[0]){next.add(claimPart(seg, lo, c[0]-1));}//left remainder survives
+					if(hi>c[1]){next.add(claimPart(seg, c[1]+1, hi));}//right remainder survives
 					//neither branch fires -> claim fully covers this segment, it's consumed
 				}
 				segments=next;
@@ -1043,7 +1075,7 @@ public class TrnaCaller extends ProkObject {
 			for(int j=0; j<shortlist.length; j++){
 				int m=shortlist[j];
 				float id=NcrnaAlignmentWork.quantum(trnaLibrary[m], seq, pos, trnaLibrary[m].length);
-				alignmentCount++;
+				recordAlignment();
 				if(id>=ID_BORDERLINE){
 					candidateModels[candidateCount]=m;
 					candidateStarts[candidateCount]=pos[0];
@@ -1059,7 +1091,7 @@ public class TrnaCaller extends ProkObject {
 				final boolean modelIsQuery=(trnaLibrary[m].length<seq.length);
 				float id=(modelIsQuery ? NcrnaAlignmentWork.scrabble(trnaLibrary[m], seq, pos, trnaLibrary[m].length)
 					: NcrnaAlignmentWork.scrabble(seq, trnaLibrary[m], null, trnaLibrary[m].length));
-				alignmentCount++;
+				recordAlignment();
 				if(id>=ID_BORDERLINE){
 					candidateModels[candidateCount]=m;
 					candidateStarts[candidateCount]=(modelIsQuery ? pos[0] : 0);
@@ -1137,7 +1169,7 @@ public class TrnaCaller extends ProkObject {
 			for(int j=0; j<shortlist.length; j++){
 				final int m=shortlist[j];
 				final float id=NcrnaAlignmentWork.scrabble(orfSeq, trnaLibrary[m], null, trnaLibrary[m].length);
-				alignmentCount++;
+				recordAlignment();
 				if(id>bestReId){bestReId=id; bestReModel=m;}
 				if(id>=ID_PASS){break;}//clear pass -- stop searching
 				if(trnaModels!=null && m<trnaModels.length && id>=ID_BORDERLINE){
@@ -1264,6 +1296,12 @@ public class TrnaCaller extends ProkObject {
 
 	/*--------------------------------------------------------------*/
 
+	private static int[] claimPart(final int[] window, final int start, final int stop){
+		return window.length==2 ? new int[]{start, stop} : NcrnaOverlapWindowBuilder.part(window, start, stop);
+	}
+	private NcrnaOverlapWindowBuilder.Caps keyBounds;
+	private NcrnaOverlapWindowBuilder keyWindowBuilder;
+	private long windowCount, windowBases, workerAlignments;
 	private final GeneModel pgm;
 	private final StatsContainer sc;
 	private final FrameStats inner;
@@ -1456,8 +1494,9 @@ public class TrnaCaller extends ProkObject {
 	//Raised 10->20 to the measured-best scavenger eval config (Brian, 2026-08-16); flag patience= overrides.
 	static int earlyExitPatience=20;
 	//TODO: Probable bug - per-worker TrnaCaller instances increment this shared
-	//counter without synchronization; CallGenes.printStats can undercount parallel
-	//alignments. It is diagnostic only and must not be used as an exact parity oracle.
+	//counter without synchronization; legacy clients can undercount parallel
+	//alignments. CallGenes now merges workerAlignmentCount; this compatibility
+	//counter remains approximate and must not be used as an exact parity oracle.
 	static long alignmentCount=0;
 	/** Debug trace (flag trnadebug=): dumps findRegions regions + long-candidate INNER_THRESH
 	 * decisions to stderr to pin which sub-gate rejects intron-bearing candidates. Zero-cost off. */

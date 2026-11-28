@@ -11,6 +11,8 @@ import prok.GradeNcrnaReference;
 import prok.NcrnaGffFamilyGrader.Locus;
 import prok.NcrnaReferenceGff;
 import prok.NcrnaReferenceGff.Row;
+import prok.NcrnaReferenceCalls;
+import prok.NcrnaReferenceCalls.Rule;
 import prok.NcrnaTextIO.Input;
 import prok.NcrnaTextIO.Output;
 
@@ -122,7 +124,98 @@ final class GradeNcrnaReferenceTest{
 		}
 		checkRestriction(codec, a, am, referenceRows, queryRows);
 		checkInexact(queryRows);
+		checkTyped(codec);
 		System.err.println("GRADE_NCRNA_REFERENCE_TEST_PASS");
+	}
+
+	/** Native typed identities share the frozen matcher, never model-name guesses. */
+	private void checkTyped(final NcrnaReferenceGff codec){
+		final ArrayList<Row> truth=new ArrayList<Row>();
+		truth.add(codec.create("T", new Locus("seq", "tRNA", 100, 179, '+'), false, null, null, "typed:t"));
+		truth.add(codec.create("T", new Locus("seq", "tRNA", 99, 180, '+'), true, "edge", null, "typed:overlap_mask"));
+		truth.add(codec.create("T", new Locus("seq", "tRNA", 6000, 6079, '+'), true, "edge", null, "typed:mask_only"));
+		truth.add(codec.create("T", new Locus("seq", "5S", 300, 419, '+'), false, null, null, "typed:5s"));
+		truth.add(codec.create("T", new Locus("seq", "SSU", 500, 1999, '+'), false, null, null, "typed:ssu"));
+		truth.add(codec.create("T", new Locus("seq", "LSU", 3000, 4500, '-'), false, null, null, "typed:lsu"));
+		truth.add(codec.create("T", new Locus("seq", "A", 7000, 7020, '+'), false, null, null, "typed:generic"));
+		codec.write(path("typed.ref.gff"), "T", truth);
+		codec.write(path("typed.empty.ref.gff"), "E", Collections.singletonList(
+			codec.create("E", new Locus("seq", "tRNA", 100, 179, '+'), false, null, null, "typed:empty")));
+		final String trna=typedCall("tRNA", "tRNA", 100, 179, '+', "");
+		final String payload="seq\tBBTools\tCDS\t1\t90\t.\t+\t0\tCDS,fr0\n"+trna+trna
+			+typedCall("rRNA", "5S", 300, 419, '+', ",model:5S_consensus,family:5S")
+			+typedCall("rRNA", "16S", 500, 1999, '+', "")
+			+typedCall("rRNA", "23S", 3002, 4497, '-', ",family:23S")
+			+typedCall("tRNA", "tRNA", 6000, 6079, '+', "")
+			+call("A", 7000, 7020, '+')+call("TPP", 7300, 7330, '+');
+		write("typed.calls.gff", payload);
+		write("typed.empty.gff", "");
+		final String typedRefs=write("typed.refs.tsv", GradeNcrnaReference.MANIFEST_HEADER+'\n'
+			+binding("T", "typed.ref.gff")+binding("E", "typed.empty.ref.gff"));
+		final String typedQueries=write("typed.queries.tsv", GradeNcrnaReference.MANIFEST_HEADER+'\n'
+			+binding("T", "typed.calls.gff")+binding("E", "typed.empty.gff"));
+		invoke("typed_legacy", typedRefs, typedQueries, null, true, true);
+		invoke("typed_off", typedRefs, typedQueries, null, true, true, "f");
+		for(final String suffix:new String[]{".raw.tsv", ".inputs.tsv", ".summary.tsv", ".overlap.raw.tsv", ".overlap.inputs.tsv",
+			".overlap.summary.tsv", ".selection.tsv"}){
+			check(Arrays.equals(lines("typed_legacy"+suffix), lines("typed_off"+suffix)),
+				"Explicit typed=f preserves mixed-type legacy output: "+suffix);
+		}
+		invoke("typed_on", typedRefs, typedQueries, null, true, true, "t");
+		final String[] inputs=lines("typed_on.inputs.tsv");
+		check(inputs[0].equals(GradeNcrnaReference.INPUT_HEADER+"\tprojected_typed")
+			&& inputs[1].endsWith("\t9\t1\t3\t3\t7\t1\t6")
+			&& inputs[2].endsWith("\t0\t0\t0\t0\t0\t0\t0"),
+			"Typed calls count once in projected populations, with raw feature types and empty inputs retained");
+		final LineParser1 p=new LineParser1('\t');
+		int tp=0, fp=0, masked=0, excluded=0, fn=0, duplicates=0;
+		boolean signed=false, absentModel=false, declaredModel=false;
+		final String[] raw=lines("typed_on.raw.tsv");
+		check(raw[0].equals(GradeNcrnaReference.RAW_HEADER+GradeNcrnaReference.TYPED_RAW_COLUMNS),
+			"Opt-in attribution has an explicit appended schema");
+		for(int i=1; i<raw.length; i++){
+			p.set(raw[i].getBytes(StandardCharsets.UTF_8));
+			check(p.terms()==20, "Typed strict query and reference rows share twenty columns");
+			if(p.termEquals("QUERY", 1)){
+				if(p.termEquals("TP", 7)){tp++;}
+				if(p.termEquals("FP", 7)){fp++;}
+				if(p.termEquals("MASKED", 7)){masked++;}
+				if(p.termEquals("EXCLUDED", 7)){excluded++;}
+				if(p.termEquals("true", 13)){duplicates++;}
+				if(p.termEquals("LSU", 2)){
+					signed=p.parseInt(16)==3 && p.parseInt(17)==-2 && p.parseLong(9)==6 && p.termEquals("23S", 18);
+				}
+				if(p.termEquals("SSU", 2)){absentModel=p.termEquals(".", 15) && p.termEquals("16S", 18);}
+				if(p.termEquals("5S", 2)){declaredModel=p.termEquals("5S_consensus", 15) && p.termEquals("5S", 19);}
+			}else if(p.termEquals("FN", 7)){fn++;}
+		}
+		check(tp==5 && fp==1 && masked==1 && excluded==1 && fn==1 && duplicates==1,
+			"One-to-one matching retains a duplicate FP, scored-over-mask precedence, a mask-only call and empty-input FN");
+		check(signed && absentModel && declaredModel, "Native types, optional model identity and gene-sense minus offsets survive projection");
+		for(final String row:lines("typed_on.overlap.raw.tsv")){
+			p.set(row.getBytes(StandardCharsets.UTF_8));
+			check(p.terms()==20, "Relaxed typed raw rows use the same explicit attribution schema");
+		}
+		final NcrnaReferenceCalls reader=new NcrnaReferenceCalls(new Rule[]{new Rule("A", "A", "A", true)}, true);
+		final String[] invalid={
+			typedCall("rRNA", "unknown", 1, 20, '+', ""),
+			typedCall("tRNA", "16S", 1, 20, '+', ""),
+			typedCall("rRNA", "16S", 1, 20, '+', ",family:23S"),
+			typedCall("rRNA", "16S", 1, 20, '+', ",model:A_c1"),
+			typedCall("rRNA", "16S", 20, 1, '+', ""),
+			typedCall("rRNA", "16S", 1, 20, '.', ""),
+			typedCall("rRNA", "16S", 1, 20, '+', "").replace("BBTools", "Other")};
+		for(int i=0; i<invalid.length; i++){
+			final String file=write("typed.bad"+i+".gff", invalid[i]);
+			expect(()->reader.read(file, "T"), " at ");
+		}
+		expect(()->reader.addReport(reader.result("T"), 1, "seq", 0, 79, 0, null, null), "saved native GFFs only");
+		System.err.println("GRADE_NCRNA_REFERENCE_TYPED_TEST_PASS");
+	}
+
+	private static String typedCall(final String feature, final String identity, final int start, final int stop,
+		final char strand, final String attributes){
+		return "seq\tBBTools\t"+feature+'\t'+start+'\t'+stop+"\t.\t"+strand+"\t0\t"+identity+attributes+'\n';
 	}
 
 	private void checkInexact(final String queryRows){
@@ -230,11 +323,16 @@ final class GradeNcrnaReferenceTest{
 	}
 	private void invoke(final String name, final String references, final String calls, final String overlap, final boolean restrict,
 		final boolean inexact){
+		invoke(name, references, calls, overlap, restrict, inexact, null);
+	}
+	private void invoke(final String name, final String references, final String calls, final String overlap, final boolean restrict,
+		final boolean inexact, final String typed){
 		final ArrayList<String> args=new ArrayList<String>(Arrays.asList("in="+calls, "reference="+references,
 			"familymap="+rules, "out="+path(name), "t=1", "bgzip=f", "zipthreads=1"));
 		if(overlap!=null){args.add("overlap="+overlap);}
 		if(restrict){args.add("restrictreference=t");}
 		if(inexact){args.add("inexact=t");}
+		if(typed!=null){args.add("typed="+typed);}
 		GradeNcrnaReference.main(args.toArray(new String[args.size()]));
 	}
 	private String binding(final String id, final String gff){return id+'\t'+path(id+".fa")+'\t'+path(gff)+'\n';}

@@ -2,6 +2,9 @@ package gff;
 
 import java.io.File;
 import java.io.PrintStream;
+import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -131,9 +134,11 @@ public class CutGff implements Accumulator<CutGff.ProcessThread>  {
 				//do nothing
 			}else if(a.equals("in") || a.equals("infna") || a.equals("fnain") || a.equals("fna") || a.equals("ref")){
 				assert(b!=null);
+				//TODO: Probable bug - addFiles can reject an absent path; ignoring false can silently drop a requested input.
 				Tools.addFiles(b, fnaList);
 			}else if(a.equals("gff") || a.equals("ingff") || a.equals("gffin")){
 				assert(b!=null);
+				//TODO: Probable bug - a rejected path can also shift the intended FASTA/GFF pairing.
 				Tools.addFiles(b, gffList);
 			}else if(a.equals("verbose")){
 				verbose=Parse.parseBoolean(b);
@@ -160,6 +165,8 @@ public class CutGff implements Accumulator<CutGff.ProcessThread>  {
 				bannedAttributes=b.split(",");
 			}else if(a.equals("banpartial")){
 				banPartial=Parse.parseBoolean(b);
+			}else if(a.equals("decodeseqid")){
+				decodeSeqid=Parse.parseBoolean(b);
 			}
 			
 			else if(a.equalsIgnoreCase("renameByTaxID")){
@@ -546,7 +553,8 @@ public class CutGff implements Accumulator<CutGff.ProcessThread>  {
 		final ByteBuilder header=callerGC ? new ByteBuilder() : null;
 		for(GffLine gline : lines){
 			if(hasAttributes(gline)){
-				Read scaf=map.get(gline.seqid);
+				final String seqid=decodeSeqid ? decodeSeqid(gline.seqid) : gline.seqid;
+				Read scaf=map.get(seqid);
 				assert(scaf!=null) : "Can't find "+gline.seqid+" in "+map.keySet();
 				
 				boolean pass=true;
@@ -640,6 +648,40 @@ public class CutGff implements Accumulator<CutGff.ProcessThread>  {
 			list.add(best);
 		}
 		return list;
+	}
+
+	/** Decodes GFF3 seqid escapes once; '+' is literal, unlike form-encoded URLs.
+	 * Returns the byte-pass-through key used by FastaReadInputStream.getHeader.
+	 * No allocation is needed for an unescaped identifier. Coordinates and attributes
+	 * remain in their original representation. Malformed escapes/UTF-8 fail loudly. */
+	public static String decodeSeqid(final String seqid){
+		assert(seqid!=null) : "FASTA lookup requires a parsed GFF seqid";
+		final int first=seqid.indexOf('%');
+		if(first<0){return seqid;}
+		final byte[] bytes=new byte[seqid.length()];
+		int length=0;
+		for(int i=0; i<seqid.length(); i++){
+			final char c=seqid.charAt(i);
+			if(c=='%'){
+				if(i+2>=seqid.length()){
+					throw new IllegalArgumentException("Incomplete GFF seqid escape: "+seqid);
+				}
+				final int a=hex(seqid.charAt(++i)), b=hex(seqid.charAt(++i));
+				if(a<0 || b<0){throw new IllegalArgumentException("Invalid GFF seqid escape: "+seqid);}
+				bytes[length++]=(byte)((a<<4)|b);
+			}else{
+				if(c>127){throw new IllegalArgumentException("GFF seqid must percent-encode non-ASCII bytes: "+seqid);}
+				bytes[length++]=(byte)c;
+			}
+		}
+		try{StandardCharsets.UTF_8.newDecoder().decode(ByteBuffer.wrap(bytes, 0, length));}
+		catch(CharacterCodingException e){throw new IllegalArgumentException("Invalid UTF-8 in GFF seqid: "+seqid, e);}
+		return new String(bytes, 0, length, StandardCharsets.ISO_8859_1);
+	}
+
+	/** GFF escapes use two ASCII hexadecimal digits, with either letter case. */
+	private static int hex(final char c){
+		return c>='0' && c<='9' ? c-'0' : c>='A' && c<='F' ? c-'A'+10 : c>='a' && c<='f' ? c-'a'+10 : -1;
 	}
 	
 	/**
@@ -925,6 +967,8 @@ public class CutGff implements Accumulator<CutGff.ProcessThread>  {
 	private boolean invert=false;
 	/** If true, exclude features marked as partial */
 	private boolean banPartial=true;
+	/** Interpret GFF3 seqid escapes only when explicitly requested. */
+	private boolean decodeSeqid=false;
 	/** Minimum feature length to retain */
 	private int minLen=1;
 	/** Maximum feature length to retain */

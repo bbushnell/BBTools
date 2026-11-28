@@ -108,6 +108,7 @@ public final class CompareCobalaminBenchmarkGradesTest{
 		check(read("valid.lengths.tsv").contains("1\tb\tRF01689\tshort_b\tUNMATCHED_OTHER\tr\tSCORED\t93\t187\t93\t"), "Unmatched third-member lengths must not vanish behind TP-only endpoint statistics");
 		changesAudit();
 		pairedCases();
+		genericFamily();
 		unmatchedLengths();
 		reportFormats();
 		countReportFormats();
@@ -303,9 +304,13 @@ public final class CompareCobalaminBenchmarkGradesTest{
 		return tableRow(prefix, "paired_endpoints", cohort, end, 13);
 	}
 	private LineParser1 tableRow(final String prefix, final String suffix, final String cohort, final String end, final int width) throws Exception{
+		return tableRow(prefix, suffix, cohort, end, width, "COBALAMIN");
+	}
+	private LineParser1 tableRow(final String prefix, final String suffix, final String cohort, final String end,
+			final int width, final String kind) throws Exception{
 		final String text=read(prefix+'.'+suffix+".tsv");
 		final String version=suffix.equals("paired_details") ? "V1" : "V2";
-		check(text.startsWith("#COBALAMIN_"+suffix.toUpperCase(Locale.ROOT)+'_'+version+'\n'), "Paired tables require their exact declared version markers");
+		check(text.startsWith('#'+kind+'_'+suffix.toUpperCase(Locale.ROOT)+'_'+version+'\n'), "Paired tables require their exact declared version markers");
 		final LineParser1 fields=new LineParser1('\t');
 		for(final String row:text.split("\n")){
 			if(row.startsWith("#")){continue;}
@@ -313,12 +318,71 @@ public final class CompareCobalaminBenchmarkGradesTest{
 			if(fields.termEquals(cohort, 0) && fields.termEquals(end, 1)){
 				check(fields.terms()==width, "Paired report width must match its declared version");
 				for(int i=2; i<width-(suffix.equals("paired_population") ? 0 : 1); i++){
+					if(kind.equals("NCRNA") && (suffix.equals("paired_endpoints") && i==11 || suffix.equals("paired_details") && i==16)){
+						check(fields.termEquals("NA", i), "A family union cannot claim unmeasured member-label switches");
+						continue;
+					}
 					check(Double.isFinite(fields.parseDouble(i)), "Every emitted paired statistic must be defined and finite");
 				}
 				return fields;
 			}
 		}
 		throw new AssertionError("Missing paired cohort/end: "+cohort+' '+end);
+	}
+
+	/** The same literal before/after loci in another family retain gains, losses
+	 * and paired-end harm, with one union cohort rather than cobalamin subtypes. */
+	private void genericFamily() throws Exception{
+		for(final String side:new String[]{"before", "after"}){
+			for(final String suffix:new String[]{"genomes", "queries", "references", "witnesses"}){
+				write("generic_"+side+'.'+suffix+".tsv", read(side+"_more."+suffix+".tsv")
+					.replace("emitted_member", "family_union").replace("RF00174", "SAM_I").replace("RF01482", "SAM_I").replace("RF01689", "SAM_I"));
+			}
+			write("generic_"+side+".family.tsv", "#NCRNA_NORMALIZED_FAMILY_V1\nfamily\tSAM_I\n");
+		}
+		CompareCobalaminBenchmarkGrades.main(new String[]{"in1="+path("generic_before"), "in2="+path("generic_after"),
+			"out="+path("generic"), "family=SAM_I", "radius=6"});
+		final String summary=read("generic.summary.tsv");
+		check(summary.startsWith("#NCRNA_COMPARISON_COUNTS_V2\n")
+			&& summary.contains("genomes_with_any_family_call\tLOST\t1\t")
+			&& summary.contains("genomes_with_scored_reference_detection\tLOST\t2\t")
+			&& summary.contains("genomes_with_scored_reference_detection\tGAINED\t1\t"),
+			"Another family must preserve distinct raw-call and scored first/last genome populations");
+		final LineParser1 five=tableRow("generic", "paired_endpoints", "SAM_I", "5prime", 13, "NCRNA");
+		final LineParser1 three=tableRow("generic", "paired_endpoints", "SAM_I", "3prime", 13, "NCRNA");
+		check(five.parseLong(3)==5 && three.parseLong(3)==5 && three.parseLong(7)==2 && three.parseLong(9)==1,
+			"The fixed paired cohort must retain both worsening ends, including the previously-near end");
+		close(five.parseDouble(4), Math.sqrt(552.0/5));
+		close(three.parseDouble(5), Math.sqrt(373.0/5));
+		check(read("generic.paired_population.tsv").split("\n").length==4
+			&& !summary.contains("RF00174") && !read("generic.paired_endpoints.tsv").contains("cobalamin")
+			&& !summary.contains("changed_emitted_member") && !summary.contains("SAM_I_to_SAM_I"),
+			"Generic output has exactly one family cohort and no borrowed subtype labels");
+		tableRow("generic", "paired_details", "SAM_I", "5prime", 18, "NCRNA");
+		for(final String side:new String[]{"empty_before", "empty_after"}){
+			write(side+".genomes.tsv", "input_id\tcalls\tmatched\tmasked\tunmatched\nz\t0\t0\t0\t0\n");
+			write(side+".references.tsv", "input_id\treference_id\tseqid\tstart\tstop\tstrand\tscored\n");
+			write(side+".queries.tsv", "input_id\tseqid\tstart\tstop\tstrand\tfamily_union\tmodel\toutcome\tscored_eligible\tmatched_reference_id\n");
+			write(side+".witnesses.tsv", "input_id\treference_id\tfamily_union\tmodel\tseqid\tcall_start\tcall_stop\tref_start\tref_stop\tstrand\td5\td3\n");
+			write(side+".family.tsv", "#NCRNA_NORMALIZED_FAMILY_V1\nfamily\t"+(side.equals("empty_before") ? "SAM_I" : "RNaseP")+'\n');
+		}
+		boolean rejected=false;
+		try{
+			CompareCobalaminBenchmarkGrades.main(new String[]{"in1="+path("empty_before"), "in2="+path("empty_after"),
+				"out="+path("wrong_family"), "family=SAM_I"});
+		}catch(IllegalArgumentException expected){rejected=expected.getMessage().contains("requested family");}
+		check(rejected && !new File(path("wrong_family.summary.tsv")).exists(),
+			"Empty query populations cannot hide a cross-family comparison");
+		for(final boolean explicit:new boolean[]{false, true}){
+			final String output=path(explicit ? "empty_as_explicit_cobalamin" : "empty_as_default_cobalamin");
+			final String[] args=explicit ? new String[]{"in1="+path("empty_before"), "in2="+path("empty_before"), "out="+output, "family=cobalamin"}
+				: new String[]{"in1="+path("empty_before"), "in2="+path("empty_before"), "out="+output};
+			boolean wrongFamily=false;
+			try{CompareCobalaminBenchmarkGrades.main(args);}
+			catch(IllegalArgumentException expected){wrongFamily=expected.getMessage().contains("requested family");}
+			check(wrongFamily && !new File(output+".summary.tsv").exists(),
+				"Default and explicit cobalamin must honor another family's declaration even with no queries");
+		}
 	}
 
 	/** No reference exists: the physical call remains, while no reference-length

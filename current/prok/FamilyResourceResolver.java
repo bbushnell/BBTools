@@ -81,13 +81,30 @@ public final class FamilyResourceResolver {
 	 * malformed or incomplete payload still fails, including explicit overrides. */
 	public Handle optional(String familyId, String role, Overrides overrides){
 		final NcrnaFamilyRegistry.Entry family=NcrnaFamilyRegistry.get(familyId);
-		require(role.equals("length_bounds") || role.equals("boundary_config") || role.equals("positional_config")
+		require(role.equals("length_bounds") || role.equals("boundary_config") || role.equals("positional_config") || role.equals("key_bounds")
 			|| family.group!=null && family.group.optional(role),
 			"Optional resolution cannot weaken required family resources: "+family.id+"/"+role);
 		return resolve(familyId, role, ".", ".", overrides, false);
 	}
 	private Handle resolve(String familyId, String role, String model, String end, Overrides overrides){
 		return resolve(familyId, role, model, end, overrides, true);
+	}
+	/** A declared binding wins; otherwise one canonical raw or gzip table enables per-key windows. */
+	public Handle optionalKeyBounds(final String familyId, final Overrides overrides){
+		final Handle declared=resolve(familyId, "key_bounds", ".", ".", overrides, false);
+		if(declared!=null){return declared;}
+		final NcrnaFamilyRegistry.Entry family=NcrnaFamilyRegistry.get(familyId);
+		final String root=overrides==null ? null : overrides.root;
+		final String path=root==null ? Data.findPath("?"+family.directory+"/manifest.tsv", false)
+			: new File(root, "manifest.tsv").getPath();
+		if(path==null || !new File(path).isFile()){return null;}
+		loadManifest(family, path);
+		File directory=new File(manifest.source).getParentFile();
+		if(family.group!=null){directory=new File(directory, family.member);}
+		final File raw=new File(directory, "key_bounds.tsv"), gzip=new File(directory, "key_bounds.tsv.gz");
+		require(!(raw.exists() && gzip.exists()), "One canonical per-key table is required; raw and gzip files cannot both select windows: "+directory);
+		final File selected=raw.exists() ? raw : gzip.exists() ? gzip : null;
+		return selected==null ? null : checked(family.id, "key_bounds", selected.getPath(), false);
 	}
 	private Handle resolve(String familyId, String role, String model, String end, Overrides overrides, boolean required){
 		final NcrnaFamilyRegistry.Entry family=NcrnaFamilyRegistry.get(familyId);

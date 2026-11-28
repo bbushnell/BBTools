@@ -39,8 +39,9 @@ public final class CobalaminCallerResources{
 			names[member]=family.modelNames;
 			sequences[member]=family.library;
 			paths[member]=resolver.resolve(family.name, "ddl_profiles", overrides).path;
-			caps[member]=NcrnaOverlapWindowBuilder.Caps.load(
+			caps[member]=family.keyBounds!=null ? family.keyBounds : NcrnaOverlapWindowBuilder.Caps.load(
 				resolver.resolve(family.name, "key_bounds", overrides).path, MEMBERS[member], family.kmerSet.size(), policy.percentile);
+			requireLegacyBounds(caps[member]);
 			caps[member].validateKeys(family.kmerSet.toArray());
 			require(policy.pads[member]<=family.windowPad,
 				"Member proposal padding cannot exceed the loaded caller's outer discovery padding: "+family.name);
@@ -63,6 +64,12 @@ public final class CobalaminCallerResources{
 	/*--------------------------------------------------------------*/
 	/*----------------           Methods            ----------------*/
 	/*--------------------------------------------------------------*/
+
+	/** The merged cobalamin route still uses its reviewed external ceilings and skips unmeasured keys. */
+	public static void requireLegacyBounds(final NcrnaOverlapWindowBuilder.Caps caps){
+		require(caps!=null && caps.chainCeiling==0 && caps.constructionPopulation==null,
+			"Merged cobalamin requires its existing legacy bounds and external policy; new generic ceiling/population metadata is not active on this route");
+	}
 
 	/** Called once when the fresh worker's clan is built, before its first query. */
 	void configure(final NcrnaClanScavenger clan){
@@ -180,6 +187,8 @@ public final class CobalaminCallerResources{
 				if(FAMILIES[1].equals(family)){resolver.resolve(family, "positional_config", options.resources);}
 			}
 		}
+		/** The unified loader validates the same percentile as the legacy member consumer. */
+		int keyPercentile(){return percentile;}
 		private final String root, pathCell;
 		private final int bins, shortlist, patience, minimumHits, percentile, depth;
 		private final int[] pads=new int[3], ceilings=new int[3];
